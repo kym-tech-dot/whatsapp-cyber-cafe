@@ -1,14 +1,34 @@
 const express = require('express');
 const axios = require('axios');
+const TelegramBot = require('node-telegram-bot-api');
+require('dotenv').config();
+
 const app = express();
 app.use(express.json());
 
-// Environment Variables kutoka Render
+// Load Credentials
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-// 1. WhatsApp Webhook Verification
+// Initialize Telegram Bot
+const bot = new TelegramBot(TELEGRAM_TOKEN, {polling: true});
+
+// --- TELEGRAM LOGIC ---
+bot.on('message', (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text ? msg.text.toLowerCase() : '';
+
+  if (text === '/start' || text === 'hi' || text === 'menu') {
+    const welcome = "🏛️ *Welcome to E-cyber Assistant*\n\nHow can I help you today?\n1. KRA NIL Returns (KES 50)\n2. eCitizen Services\n3. CV Generation\n\nType *KRA* to get started!";
+    bot.sendMessage(chatId, welcome, {parse_mode: 'Markdown'});
+  } else if (text.includes('kra')) {
+    bot.sendMessage(chatId, "To file your KRA NIL Returns, please pay KES 50. (Payment link integration coming soon!)");
+  }
+});
+
+// --- WHATSAPP LOGIC ---
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -20,21 +40,6 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// 2. Kurasa za Kisheria kwa ajili ya Meta (Privacy & Terms)
-app.get('/privacy', (req, res) => {
-  res.send('<h1>Privacy Policy</h1><p>E-cyber bot is committed to protecting your personal data. We only collect information necessary to provide cyber cafe services like KRA returns. Your data is never shared with third parties.</p>');
-});
-
-app.get('/terms', (req, res) => {
-  res.send('<h1>Terms of Service</h1><p>By using E-cyber bot, you agree to our terms. We provide automated assistance for government services. Users are responsible for the accuracy of the data provided.</p>');
-});
-
-// 3. Ukurasa wa Nyumbani (Home Page)
-app.get('/', (req, res) => {
-  res.send('<h1>E-cyber Universal Engine is Live!</h1><p>Official website for E-cyber bot services.</p>');
-});
-
-// 4. Handle Incoming WhatsApp Messages
 app.post('/webhook', async (req, res) => {
   const body = req.body;
   if (body.object === 'whatsapp_business_account') {
@@ -45,14 +50,30 @@ app.post('/webhook', async (req, res) => {
       const message = value.messages[0];
       const from = message.from;
       const text = message.text?.body || '';
-      console.log(`Meseji kutoka ${from}: ${text}`);
-      // Hapa unaweza kuongeza logic yako ya AI au Menu
+      
+      if (text.toLowerCase() === 'hi' || text.toLowerCase() === 'menu') {
+        await sendMessage(from, "🏛️ *Welcome to E-cyber Assistant*\n\n1. KRA NIL Returns (KES 50)\n2. eCitizen Services\n\nType *KRA* to start!");
+      }
     }
   }
   res.sendStatus(200);
 });
 
+async function sendMessage(to, text) {
+  try {
+    await axios.post(`https://graph.facebook.com/v17.0/${PHONE_ID}/messages`, {
+      messaging_product: 'whatsapp',
+      to: to,
+      type: 'text',
+      text: { body: text }
+    }, { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } } );
+  } catch (e) { console.error('WA Error', e.response?.data); }
+}
+
+// --- LEGAL ENDPOINTS (For Meta Review) ---
+app.get('/privacy', (req, res) => res.send("Privacy Policy: We protect your data."));
+app.get('/terms', (req, res) => res.send("Terms of Service: Use our bot fairly."));
+app.get('/', (req, res) => res.send("E-cyber Universal Engine is Live!"));
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
