@@ -1,21 +1,10 @@
 {
   "name": "whatsapp-cyber-cafe",
   "version": "1.0.0",
-  "description": "E-cyber Universal Engine for WhatsApp and Telegram bot services.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
-  "keywords": [
-    "whatsapp",
-    "telegram",
-    "bot",
-    "cyber-cafe",
-    "kenya"
-  ],
-  "author": "Paul Kimani",
-  "license": "ISC",
   "dependencies": {
     "axios": "^1.4.0",
     "dotenv": "^16.0.3",
