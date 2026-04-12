@@ -2,6 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const app = express();
 const puppeteer = require("puppeteer");
+const path = require("path");
 
 app.use(express.json());
 
@@ -90,10 +91,13 @@ function solveCaptcha(captchaText) {
 async function performKRA_NIL_Return(kraPin, kraPassword) {
   let browser;
   try {
+    // Explicitly define the path where Render installs the browser
+    const executablePath = path.join(__dirname, ".cache", "puppeteer", "chrome", "linux-146.0.7680.153", "chrome-linux64", "chrome");
+    
     browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, // Explicitly use environment variable
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || executablePath,
     });
     const page = await browser.newPage();
     await page.goto("https://itax.kra.go.ke/KRA-Portal/");
@@ -107,10 +111,10 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
     // Handle potential pop-up (e.g., Taxpayer Notice) if it appears
-    const popupCloseButton = await page.$("button.close"); // Adjust selector if needed
+    const popupCloseButton = await page.$("button.close"); 
     if (popupCloseButton) {
       await popupCloseButton.click();
-      await page.waitForTimeout(1000); // Give some time for the popup to close
+      await new Promise(resolve => setTimeout(resolve, 1000)); 
     }
 
     // Wait for the password input field to be visible and clickable
@@ -118,8 +122,8 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     await page.type("#password", kraPassword);
 
     // Solve Captcha
-    await page.waitForSelector("label[for=\'captcahText\"]", { visible: true });
-    const captchaTextElement = await page.$("label[for=\'captcahText\"]"); 
+    await page.waitForSelector("label[for='captcahText']", { visible: true });
+    const captchaTextElement = await page.$("label[for='captcahText']"); 
     let captchaText = "";
     if (captchaTextElement) {
       captchaText = await page.evaluate(el => el.innerText, captchaTextElement);
@@ -141,15 +145,15 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     await page.click("#loginButton"); 
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
-    // Check for successful login (example: look for a dashboard element)
+    // Check for successful login
     const isLoggedIn = await page.$("#dashboardMenu") !== null; 
     if (!isLoggedIn) {
       throw new Error("Login failed. Check PIN/Password or Captcha.");
     }
 
-    // Navigate to \"File Nil Return\" (this path needs to be verified on the actual portal)
-    await page.waitForSelector("a[href*=\"fileNilReturn\"]", { visible: true });
-    await page.click("a[href*=\"fileNilReturn\"]"); 
+    // Navigate to \"File Nil Return\"
+    await page.waitForSelector("a[href*='fileNilReturn']", { visible: true });
+    await page.click("a[href*='fileNilReturn']"); 
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
     // Select tax obligation, tax period, etc. and submit
@@ -178,7 +182,7 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
   }
 }
 
-// Service execution logic - now with specific responses
+// Service execution logic
 async function executeService(serviceId, details, platform, userId) {
   const service = services[serviceId];
   let resultMessage = "";
@@ -214,7 +218,7 @@ async function executeService(serviceId, details, platform, userId) {
       resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya mkopo wa HELB yamewasilishwa. Utapokea ujumbe wa uthibitisho kutoka HELB hivi karibuni.`;
       break;
     case "KRA_PIN":
-      const generatedPin = `A${Math.floor(Math.random() * 900000000) + 100000000}Z`; // Simulating a KRA PIN format
+      const generatedPin = `A${Math.floor(Math.random() * 900000000) + 100000000}Z`; 
       resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nKRA PIN yako mpya ni: *${generatedPin}*. Unaweza kuipakua hapa: [https://ecyber.com/documents/kra_pin_${userId}]`;
       break;
     case "PASSPORT_APP":
@@ -296,20 +300,16 @@ app.post("/webhook", async (req, res) => {
       if (kraPin && kraPassword) {
         userState.details.kraPin = kraPin.toUpperCase();
         userState.details.kraPassword = kraPassword;
-        // Simulate successful payment and execute service immediately
         userState.state = "SERVICE_PROCESSING";
         await executeService(userState.serviceId, userState.details, "whatsapp", from);
-        userState.state = "START"; // Reset state after completion
+        userState.state = "START"; 
         userState.serviceId = null;
       } else {
         await sendMessage("whatsapp", from, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi, mfano: *A123456789Z password123*.");
       }
     }
     else if (userState.state === "AWAITING_DETAILS") {
-      const service = services[userState.serviceId];
       userState.details.customerInput = text; 
-      
-      // Simulate successful payment and execute service immediately
       userState.state = "SERVICE_PROCESSING";
       await executeService(userState.serviceId, userState.details, "whatsapp", from);
       userState.state = "START";
@@ -363,7 +363,6 @@ app.post("/telegram-webhook", async (req, res) => {
       if (kraPin && kraPassword) {
         userState.details.kraPin = kraPin.toUpperCase();
         userState.details.kraPassword = kraPassword;
-        // Simulate successful payment and execute service immediately
         userState.state = "SERVICE_PROCESSING";
         await executeService(userState.serviceId, userState.details, "telegram", chatId);
         userState.state = "START";
@@ -373,10 +372,7 @@ app.post("/telegram-webhook", async (req, res) => {
       }
     }
     else if (userState.state === "AWAITING_DETAILS") {
-      const service = services[userState.serviceId];
       userState.details.customerInput = text; 
-      
-      // Simulate successful payment and execute service immediately
       userState.state = "SERVICE_PROCESSING";
       await executeService(userState.serviceId, userState.details, "telegram", chatId);
       userState.state = "START";
@@ -394,3 +390,4 @@ app.post("/telegram-webhook", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
+
