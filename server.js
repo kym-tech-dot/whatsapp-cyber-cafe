@@ -92,38 +92,39 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
   let browser;
   try {
     // Explicitly define the path where Render installs the browser
-    const executablePath = path.join(__dirname, ".cache", "puppeteer", "chrome", "linux-146.0.7680.153", "chrome-linux64", "chrome");
+    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || path.join(__dirname, ".cache", "puppeteer", "chrome", "linux-146.0.7680.153", "chrome-linux64", "chrome");
     
     browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || executablePath,
+      executablePath: executablePath,
     });
     const page = await browser.newPage();
     await page.goto("https://itax.kra.go.ke/KRA-Portal/");
 
     // Wait for the PIN input field to be visible and clickable
-    await page.waitForSelector("#logid", { visible: true });
+    await page.waitForSelector("#logid", { visible: true, timeout: 10000 });
     await page.type("#logid", kraPin);
 
     // Click Continue and wait for navigation
     await page.click("#loginButton"); 
-    await page.waitForNavigation({ waitUntil: "networkidle0" });
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 });
 
     // Handle potential pop-up (e.g., Taxpayer Notice) if it appears
     const popupCloseButton = await page.$("button.close"); 
     if (popupCloseButton) {
+      console.log("Closing pop-up...");
       await popupCloseButton.click();
-      await new Promise(resolve => setTimeout(resolve, 1000)); 
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Give more time for the popup to close
     }
 
     // Wait for the password input field to be visible and clickable
-    await page.waitForSelector("#password", { visible: true });
+    await page.waitForSelector("#password", { visible: true, timeout: 10000 });
     await page.type("#password", kraPassword);
 
     // Solve Captcha
-    await page.waitForSelector("label[for='captcahText']", { visible: true });
-    const captchaTextElement = await page.$("label[for='captcahText']"); 
+    await page.waitForSelector("label[for=\'captcahText\"]", { visible: true, timeout: 10000 });
+    const captchaTextElement = await page.$("label[for=\'captcahText\"]"); 
     let captchaText = "";
     if (captchaTextElement) {
       captchaText = await page.evaluate(el => el.innerText, captchaTextElement);
@@ -135,7 +136,7 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     const captchaAnswer = solveCaptcha(captchaText);
 
     if (captchaAnswer !== null) {
-      await page.waitForSelector("#captcahText", { visible: true });
+      await page.waitForSelector("#captcahText", { visible: true, timeout: 10000 });
       await page.type("#captcahText", String(captchaAnswer)); 
     } else {
       throw new Error("Failed to solve captcha. Captcha text not found or unparseable.");
@@ -143,33 +144,37 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
 
     // Click Login and wait for navigation
     await page.click("#loginButton"); 
-    await page.waitForNavigation({ waitUntil: "networkidle0" });
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 });
 
     // Check for successful login
     const isLoggedIn = await page.$("#dashboardMenu") !== null; 
     if (!isLoggedIn) {
-      throw new Error("Login failed. Check PIN/Password or Captcha.");
+      // Capture screenshot on login failure for debugging
+      await page.screenshot({ path: 'login_failure.png' });
+      throw new Error("Login failed. Check PIN/Password or Captcha. Screenshot saved as login_failure.png");
     }
 
     // Navigate to \"File Nil Return\"
-    await page.waitForSelector("a[href*='fileNilReturn']", { visible: true });
-    await page.click("a[href*='fileNilReturn']"); 
-    await page.waitForNavigation({ waitUntil: "networkidle0" });
+    await page.waitForSelector("a[href*=\'fileNilReturn\"]", { visible: true, timeout: 10000 });
+    await page.click("a[href*=\'fileNilReturn\"]"); 
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 });
 
     // Select tax obligation, tax period, etc. and submit
-    await page.waitForSelector("#taxObligation", { visible: true });
+    await page.waitForSelector("#taxObligation", { visible: true, timeout: 10000 });
     await page.select("#taxObligation", "ITR"); 
-    await page.waitForSelector("#taxPeriod", { visible: true });
+    await page.waitForSelector("#taxPeriod", { visible: true, timeout: 10000 });
     await page.select("#taxPeriod", "2023"); 
-    await page.waitForSelector("#submitNilReturn", { visible: true });
+    await page.waitForSelector("#submitNilReturn", { visible: true, timeout: 10000 });
     await page.click("#submitNilReturn"); 
-    await page.waitForNavigation({ waitUntil: "networkidle0" });
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 });
 
     const successMessage = await page.evaluate(() => document.body.innerText.includes("Return Submitted Successfully"));
     if (successMessage) {
       return { success: true, message: "KRA NIL Return filed successfully!" };
     } else {
-      return { success: false, message: "Failed to file KRA NIL Return. Please check details." };
+      // Capture screenshot on filing failure for debugging
+      await page.screenshot({ path: 'filing_failure.png' });
+      return { success: false, message: "Failed to file KRA NIL Return. Please check details. Screenshot saved as filing_failure.png" };
     }
 
   } catch (error) {
@@ -296,16 +301,53 @@ app.post("/webhook", async (req, res) => {
       }
     } 
     else if (userState.state === "AWAITING_KRA_CREDENTIALS") {
-      const [kraPin, kraPassword] = text.split(" ");
+      // Improved parsing for KRA PIN and Password
+      const parts = text.split(/\s+/).filter(Boolean); // Split by any whitespace and remove empty strings
+      let kraPin = null;
+      let kraPassword = null;
+
+      // Attempt to find KRA PIN (starts with A, ends with a letter, 10 chars total)
+      // KRA PIN format: A123456789Z (starts with A, 9 digits, ends with a letter)
+      const kraPinRegex = /^[a-zA-Z]\d{9}[a-zA-Z]$/i;
+
+      let pinIndex = -1;
+      for (let i = 0; i < parts.length; i++) {
+        if (kraPinRegex.test(parts[i])) {
+          kraPin = parts[i].toUpperCase();
+          pinIndex = i;
+          break;
+        }
+      }
+
+      if (kraPin && pinIndex !== -1) {
+        // Try to find the password. Look for a word that looks like a password after the PIN.
+        // Or, if "password" keyword is present, take the word after it.
+        let passwordStartIndex = -1;
+        for (let i = pinIndex + 1; i < parts.length; i++) {
+          if (parts[i].toLowerCase() === "password") {
+            passwordStartIndex = i + 1;
+            break;
+          }
+        }
+
+        if (passwordStartIndex !== -1 && passwordStartIndex < parts.length) {
+          kraPassword = parts.slice(passwordStartIndex).join(" ");
+        } else if (pinIndex + 1 < parts.length) {
+          // If no "password" keyword, assume the rest is the password
+          kraPassword = parts.slice(pinIndex + 1).join(" ");
+        }
+      }
+
       if (kraPin && kraPassword) {
-        userState.details.kraPin = kraPin.toUpperCase();
+        userState.details.kraPin = kraPin;
         userState.details.kraPassword = kraPassword;
         userState.state = "SERVICE_PROCESSING";
         await executeService(userState.serviceId, userState.details, "whatsapp", from);
         userState.state = "START"; 
         userState.serviceId = null;
       } else {
-        await sendMessage("whatsapp", from, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi, mfano: *A123456789Z password123*.");
+        await sendMessage("whatsapp", from, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi. Mfano: *A123456789Z password123*.");
+        // Keep user in AWAITING_KRA_CREDENTIALS state to retry
       }
     }
     else if (userState.state === "AWAITING_DETAILS") {
@@ -359,16 +401,53 @@ app.post("/telegram-webhook", async (req, res) => {
         await sendMessage("telegram", chatId, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
       }
     } else if (userState.state === "AWAITING_KRA_CREDENTIALS") {
-      const [kraPin, kraPassword] = text.split(" ");
+      // Improved parsing for KRA PIN and Password
+      const parts = text.split(/\s+/).filter(Boolean); // Split by any whitespace and remove empty strings
+      let kraPin = null;
+      let kraPassword = null;
+
+      // Attempt to find KRA PIN (starts with A, ends with a letter, 10 chars total)
+      // KRA PIN format: A123456789Z (starts with A, 9 digits, ends with a letter)
+      const kraPinRegex = /^[a-zA-Z]\d{9}[a-zA-Z]$/i;
+
+      let pinIndex = -1;
+      for (let i = 0; i < parts.length; i++) {
+        if (kraPinRegex.test(parts[i])) {
+          kraPin = parts[i].toUpperCase();
+          pinIndex = i;
+          break;
+        }
+      }
+
+      if (kraPin && pinIndex !== -1) {
+        // Try to find the password. Look for a word that looks like a password after the PIN.
+        // Or, if "password" keyword is present, take the word after it.
+        let passwordStartIndex = -1;
+        for (let i = pinIndex + 1; i < parts.length; i++) {
+          if (parts[i].toLowerCase() === "password") {
+            passwordStartIndex = i + 1;
+            break;
+          }
+        }
+
+        if (passwordStartIndex !== -1 && passwordStartIndex < parts.length) {
+          kraPassword = parts.slice(passwordStartIndex).join(" ");
+        } else if (pinIndex + 1 < parts.length) {
+          // If no "password" keyword, assume the rest is the password
+          kraPassword = parts.slice(pinIndex + 1).join(" ");
+        }
+      }
+
       if (kraPin && kraPassword) {
-        userState.details.kraPin = kraPin.toUpperCase();
+        userState.details.kraPin = kraPin;
         userState.details.kraPassword = kraPassword;
         userState.state = "SERVICE_PROCESSING";
         await executeService(userState.serviceId, userState.details, "telegram", chatId);
         userState.state = "START";
         userState.serviceId = null;
       } else {
-        await sendMessage("telegram", chatId, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi, mfano: *A123456789Z password123*.");
+        await sendMessage("telegram", chatId, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi. Mfano: *A123456789Z password123*.");
+        // Keep user in AWAITING_KRA_CREDENTIALS state to retry
       }
     }
     else if (userState.state === "AWAITING_DETAILS") {
