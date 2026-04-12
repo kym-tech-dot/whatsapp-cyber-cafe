@@ -90,7 +90,11 @@ function solveCaptcha(captchaText) {
 async function performKRA_NIL_Return(kraPin, kraPassword) {
   let browser;
   try {
-    browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+    });
     const page = await browser.newPage();
     await page.goto("https://itax.kra.go.ke/KRA-Portal/");
 
@@ -103,14 +107,11 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     await page.type("#password", kraPassword);
 
     // Solve Captcha
-    // The selector for captcha text and input field needs to be accurate. 
-    // Based on common KRA iTax portal structure, these are likely candidates.
-    const captchaTextElement = await page.$("label[for='captcahText']"); // Find the label for captcha text
+    const captchaTextElement = await page.$("label[for=\'captcahText\']"); // Find the label for captcha text
     let captchaText = "";
     if (captchaTextElement) {
       captchaText = await page.evaluate(el => el.innerText, captchaTextElement);
     } else {
-      // Fallback if label is not found, try to find a div or span containing the text
       const potentialCaptchaText = await page.$eval("div.captcha-text, span.captcha-text", el => el.innerText).catch(() => null);
       if (potentialCaptchaText) captchaText = potentialCaptchaText;
     }
@@ -118,7 +119,7 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     const captchaAnswer = solveCaptcha(captchaText);
 
     if (captchaAnswer !== null) {
-      await page.type("#captcahText", String(captchaAnswer)); // Assuming input field has id 'captcahText' or similar
+      await page.type("#captcahText", String(captchaAnswer)); // Assuming input field has id \'captcahText\' or similar
     } else {
       throw new Error("Failed to solve captcha. Captcha text not found or unparseable.");
     }
@@ -132,14 +133,11 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
       throw new Error("Login failed. Check PIN/Password or Captcha.");
     }
 
-    // Navigate to 'File Nil Return' (this path needs to be verified on the actual portal)
-    // This part is highly dependent on the KRA portal's internal navigation
-    // For demonstration, let's assume a direct link or menu item
+    // Navigate to \'File Nil Return\' (this path needs to be verified on the actual portal)
     await page.click("a[href*=\"fileNilReturn\"]"); // Example selector, needs to be accurate
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
     // Select tax obligation, tax period, etc. and submit
-    // These steps are highly specific to the KRA portal UI and need careful implementation
     await page.select("#taxObligation", "ITR"); // Example: Select Income Tax Resident
     await page.select("#taxPeriod", "2023"); // Example: Select tax period
     await page.click("#submitNilReturn"); // Example: Click submit button
@@ -170,7 +168,6 @@ async function executeService(serviceId, details, platform, userId) {
 
   switch (serviceId) {
     case "KRA_NIL":
-      // For KRA NIL, we need PIN and Password
       if (details.kraPin && details.kraPassword) {
         await sendMessage(platform, userId, `Nafanya KRA NIL Return kwa PIN: ${details.kraPin}... Tafadhali subiri kidogo.`);
         const automationResult = await performKRA_NIL_Return(details.kraPin, details.kraPassword);
