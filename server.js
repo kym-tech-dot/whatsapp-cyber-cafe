@@ -1,6 +1,7 @@
 const express = require("express");
 const axios = require("axios");
 const app = express();
+const puppeteer = require("puppeteer");
 
 app.use(express.json());
 
@@ -62,6 +63,54 @@ function generateMenuText() {
   return menu;
 }
 
+// KRA NIL Return automation function
+async function performKRA_NIL_Return(kraPin, kraPassword) {
+  let browser;
+  try {
+    browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const page = await browser.newPage();
+    await page.goto('https://itax.kra.go.ke/KRA-Portal/');
+
+    // Enter KRA PIN
+    await page.type('#logid', kraPin);
+    await page.click('#loginButton'); // Assuming there's a login button or it proceeds automatically
+    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+
+    // Enter password and solve captcha (this part is highly dynamic and complex)
+    // For now, we'll assume successful login for demonstration
+    // In a real scenario, you'd need to implement OCR for captcha or other bypass methods
+    await page.type('#password', kraPassword);
+    await page.click('#loginButton'); // Assuming another login button after password
+    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+
+    // Navigate to 'File Nil Return' (this path needs to be verified on the actual portal)
+    await page.click('a[href*="fileNilReturn"]'); // Example selector, needs to be accurate
+    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+
+    // Select tax obligation, tax period, etc. and submit
+    // These steps are highly specific to the KRA portal UI and need careful implementation
+    await page.select('#taxObligation', 'ITR'); // Example: Select Income Tax Resident
+    await page.select('#taxPeriod', '2023'); // Example: Select tax period
+    await page.click('#submitNilReturn'); // Example: Click submit button
+    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+
+    const successMessage = await page.evaluate(() => document.body.innerText.includes('Return Submitted Successfully'));
+    if (successMessage) {
+      return { success: true, message: "KRA NIL Return filed successfully!" };
+    } else {
+      return { success: false, message: "Failed to file KRA NIL Return. Please check details." };
+    }
+
+  } catch (error) {
+    console.error("KRA NIL Return automation failed:", error);
+    return { success: false, message: `Automation failed: ${error.message}` };
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
 // Service execution logic - now with specific responses
 async function executeService(serviceId, details, platform, userId) {
   const service = services[serviceId];
@@ -70,7 +119,18 @@ async function executeService(serviceId, details, platform, userId) {
 
   switch (serviceId) {
     case "KRA_NIL":
-      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nTumewasilisha NIL return yako kwa KRA. Risiti yako inapatikana hapa: [https://ecyber.com/receipts/KRA_NIL_${userId}]`;
+      // For KRA NIL, we need PIN and Password
+      if (details.kraPin && details.kraPassword) {
+        await sendMessage(platform, userId, `Nafanya KRA NIL Return kwa PIN: ${details.kraPin}... Tafadhali subiri kidogo.`);
+        const automationResult = await performKRA_NIL_Return(details.kraPin, details.kraPassword);
+        if (automationResult.success) {
+          resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\n${automationResult.message} Risiti yako inapatikana hapa: [https://ecyber.com/receipts/KRA_NIL_${userId}]`;
+        } else {
+          resultMessage = `❌ Samahani, huduma ya *${service.name}* imeshindwa. ${automationResult.message}`; 
+        }
+      } else {
+        resultMessage = `Samahani, kwa huduma ya *${service.name}*, nahitaji KRA PIN na Neno Siri (Password) yako.`;
+      }
       break;
     case "SHA_REG":
       resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUsajili wako wa SHA umekamilika. Namba yako ya usajili ni: *SHA-${Math.floor(Math.random() * 1000000)}*.`;
@@ -153,18 +213,38 @@ app.post("/webhook", async (req, res) => {
         const serviceId = serviceKeys[selectedIndex];
         const service = services[serviceId];
         userState.serviceId = serviceId;
-        userState.state = "AWAITING_DETAILS";
-        await sendMessage("whatsapp", from, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma maelezo yako (mfano: Jina Kamili na Namba ya Kitambulisho) ili tuanze kushughulikia.`);
+        
+        if (serviceId === "KRA_NIL") {
+          userState.state = "AWAITING_KRA_CREDENTIALS";
+          await sendMessage("whatsapp", from, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma KRA PIN na Neno Siri (Password) yako, mfano: *A123456789Z password123*.`);
+        } else {
+          userState.state = "AWAITING_DETAILS";
+          await sendMessage("whatsapp", from, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma maelezo yako (mfano: Jina Kamili na Namba ya Kitambulisho) ili tuanze kushughulikia.`);
+        }
       } else {
         await sendMessage("whatsapp", from, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
       }
     } 
-    // Handle detail submission and SIMULATE payment success
+    else if (userState.state === "AWAITING_KRA_CREDENTIALS") {
+      const [kraPin, kraPassword] = text.split(' ');
+      if (kraPin && kraPassword) {
+        userState.details.kraPin = kraPin.toUpperCase();
+        userState.details.kraPassword = kraPassword;
+        // Simulate successful payment and execute service immediately
+        userState.state = "SERVICE_PROCESSING";
+        await executeService(userState.serviceId, userState.details, "whatsapp", from);
+        userState.state = "START"; // Reset state after completion
+        userState.serviceId = null;
+      } else {
+        await sendMessage("whatsapp", from, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi, mfano: *A123456789Z password123*.");
+      }
+    }
     else if (userState.state === "AWAITING_DETAILS") {
       const service = services[userState.serviceId];
       userState.details.customerInput = text; 
       
       // Simulate successful payment and execute service immediately
+      userState.state = "SERVICE_PROCESSING";
       await executeService(userState.serviceId, userState.details, "whatsapp", from);
       userState.state = "START"; // Reset state after completion
       userState.serviceId = null;
@@ -201,16 +281,37 @@ app.post("/telegram-webhook", async (req, res) => {
         const serviceId = serviceKeys[selectedIndex];
         const service = services[serviceId];
         userState.serviceId = serviceId;
-        userState.state = "AWAITING_DETAILS";
-        await sendMessage("telegram", chatId, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma maelezo yako (mfano: Jina Kamili na Namba ya Kitambulisho) ili tuanze kushughulikia.`);
+        
+        if (serviceId === "KRA_NIL") {
+          userState.state = "AWAITING_KRA_CREDENTIALS";
+          await sendMessage("telegram", chatId, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma KRA PIN na Neno Siri (Password) yako, mfano: *A123456789Z password123*.`);
+        } else {
+          userState.state = "AWAITING_DETAILS";
+          await sendMessage("telegram", chatId, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma maelezo yako (mfano: Jina Kamili na Namba ya Kitambulisho) ili tuanze kushughulikia.`);
+        }
       } else {
         await sendMessage("telegram", chatId, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
       }
-    } else if (userState.state === "AWAITING_DETAILS") {
+    } else if (userState.state === "AWAITING_KRA_CREDENTIALS") {
+      const [kraPin, kraPassword] = text.split(' ');
+      if (kraPin && kraPassword) {
+        userState.details.kraPin = kraPin.toUpperCase();
+        userState.details.kraPassword = kraPassword;
+        // Simulate successful payment and execute service immediately
+        userState.state = "SERVICE_PROCESSING";
+        await executeService(userState.serviceId, userState.details, "telegram", chatId);
+        userState.state = "START";
+        userState.serviceId = null;
+      } else {
+        await sendMessage("telegram", chatId, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi, mfano: *A123456789Z password123*.");
+      }
+    }
+    else if (userState.state === "AWAITING_DETAILS") {
       const service = services[userState.serviceId];
       userState.details.customerInput = text; 
       
       // Simulate successful payment and execute service immediately
+      userState.state = "SERVICE_PROCESSING";
       await executeService(userState.serviceId, userState.details, "telegram", chatId);
       userState.state = "START";
       userState.serviceId = null;
