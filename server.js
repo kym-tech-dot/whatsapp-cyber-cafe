@@ -103,13 +103,24 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     await page.type("#password", kraPassword);
 
     // Solve Captcha
-    const captchaText = await page.$eval("#captcahText", el => el.innerText); // Selector needs to be verified
+    // The selector for captcha text and input field needs to be accurate. 
+    // Based on common KRA iTax portal structure, these are likely candidates.
+    const captchaTextElement = await page.$("label[for='captcahText']"); // Find the label for captcha text
+    let captchaText = "";
+    if (captchaTextElement) {
+      captchaText = await page.evaluate(el => el.innerText, captchaTextElement);
+    } else {
+      // Fallback if label is not found, try to find a div or span containing the text
+      const potentialCaptchaText = await page.$eval("div.captcha-text, span.captcha-text", el => el.innerText).catch(() => null);
+      if (potentialCaptchaText) captchaText = potentialCaptchaText;
+    }
+
     const captchaAnswer = solveCaptcha(captchaText);
 
     if (captchaAnswer !== null) {
-      await page.type("#captcahAnswer", String(captchaAnswer)); // Selector needs to be verified
+      await page.type("#captcahText", String(captchaAnswer)); // Assuming input field has id 'captcahText' or similar
     } else {
-      throw new Error("Failed to solve captcha.");
+      throw new Error("Failed to solve captcha. Captcha text not found or unparseable.");
     }
 
     await page.click("#loginButton"); // Click Login
