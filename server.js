@@ -1,7 +1,6 @@
 const express = require("express");
 const axios = require("axios");
 const app = express();
-// const IntaSend = require("intasend-node"); // No longer needed for simulated payment
 
 app.use(express.json());
 
@@ -9,17 +8,6 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
-// IntaSend API credentials (no longer actively used for payment, but kept for future reference)
-const INTASEND_PUBLISHABLE_KEY = process.env.INTASEND_PUBLISHABLE_KEY || "YOUR_INTASEND_PUBLISHABLE_KEY";
-const INTASEND_SECRET_KEY = process.env.INTASEND_SECRET_KEY || "YOUR_INTASEND_SECRET_KEY";
-const INTASEND_TEST_MODE = process.env.INTASEND_TEST_MODE === "true"; 
-
-// const intasend = new IntaSend(
-//   INTASEND_PUBLISHABLE_KEY,
-//   INTASEND_SECRET_KEY,
-//   INTASEND_TEST_MODE
-// );
 
 // Services embedded directly into the code
 const services = {
@@ -74,23 +62,61 @@ function generateMenuText() {
   return menu;
 }
 
-// Service execution logic
+// Service execution logic - now with specific responses
 async function executeService(serviceId, details, platform, userId) {
   const service = services[serviceId];
   let resultMessage = "";
+  const customerInput = details.customerInput || "";
 
   switch (serviceId) {
     case "KRA_NIL":
-      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nTumewasilisha NIL return yako kwa KRA. Unaweza kupakua risiti yako hapa: [Link ya Risiti]`;
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nTumewasilisha NIL return yako kwa KRA. Risiti yako inapatikana hapa: [https://ecyber.com/receipts/KRA_NIL_${userId}]`;
       break;
     case "SHA_REG":
-      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUsajili wako wa SHA umekamilika. Namba yako ya usajili ni: SHA-XXXXXX.`;
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUsajili wako wa SHA umekamilika. Namba yako ya usajili ni: *SHA-${Math.floor(Math.random() * 1000000)}*.`;
+      break;
+    case "GOOD_CONDUCT":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nHati yako ya tabia njema (Good Conduct) imetolewa. Unaweza kuipakua hapa: [https://ecyber.com/documents/good_conduct_${userId}]`;
+      break;
+    case "DL_RENEWAL":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nLeseni yako ya udereva imefanyiwa upya kwa miaka 3. Unaweza kupakua leseni mpya hapa: [https://ecyber.com/documents/dl_renewal_${userId}]`;
+      break;
+    case "BUSINESS_SEARCH":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUtafutaji wa jina la biashara umekamilika. Matokeo yametumwa kwako kupitia SMS/Email.`;
+      break;
+    case "HELB_APP":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya mkopo wa HELB yamewasilishwa. Utapokea ujumbe wa uthibitisho kutoka HELB hivi karibuni.`;
+      break;
+    case "KRA_PIN":
+      const generatedPin = `A${Math.floor(Math.random() * 900000000) + 100000000}Z`; // Simulating a KRA PIN format
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nKRA PIN yako mpya ni: *${generatedPin}*. Unaweza kuipakua hapa: [https://ecyber.com/documents/kra_pin_${userId}]`;
+      break;
+    case "PASSPORT_APP":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya Pasipoti yamewasilishwa. Utapokea ujumbe wa tarehe ya kuchukua picha na alama za vidole.`;
+      break;
+    case "LOGBOOK_TRANSFER":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUhamishaji wa umiliki wa Logbook umekamilika. Hati mpya ya umiliki inapatikana hapa: [https://ecyber.com/documents/logbook_${userId}]`;
+      break;
+    case "ID_REPLACEMENT":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya kubadilisha kitambulisho yamewasilishwa. Utapokea ujumbe wa tarehe ya kukichukua.`;
+      break;
+    case "TAX_COMPLIANCE":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nHati yako ya Uzingatiaji Kodi (TCC) imetolewa. Unaweza kuipakua hapa: [https://ecyber.com/documents/tcc_${userId}]`;
+      break;
+    case "BIRTH_CERT":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya cheti cha kuzaliwa yamewasilishwa. Utapokea ujumbe wa tarehe ya kukichukua.`;
+      break;
+    case "TSC_APP":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nNamba yako ya TSC imetolewa. Unaweza kuipata hapa: [https://ecyber.com/documents/tsc_${userId}]`;
+      break;
+    case "NHIF_SHA":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUhamishaji wako kutoka NHIF kwenda SHA umekamilika.`;
       break;
     case "CV_PRO":
-      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nCV yako ya kitaalamu imetengenezwa. Unaweza kuipakua hapa: [Link ya CV]`;
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nCV yako ya kitaalamu imetengenezwa. Unaweza kuipakua hapa: [https://ecyber.com/documents/cv_${userId}]`;
       break;
     default:
-      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nAsante kwa kutumia E-cyber. Tutawasiliana nawe hivi punde kwa maelezo zaidi.`;
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nAsante kwa kutumia E-cyber. Tumepokea maelezo yako: \"${customerInput}\".`;
   }
 
   await sendMessage(platform, userId, resultMessage);
@@ -138,10 +164,7 @@ app.post("/webhook", async (req, res) => {
       const service = services[userState.serviceId];
       userState.details.customerInput = text; 
       
-      await sendMessage("whatsapp", from, `Asante! Tumepokea maelezo yako kwa ajili ya *${service.name}*. Malipo yamesimuliwa kufanikiwa.`);
-      
-      // Simulate successful payment and execute service
-      userState.state = "SERVICE_PROCESSING";
+      // Simulate successful payment and execute service immediately
       await executeService(userState.serviceId, userState.details, "whatsapp", from);
       userState.state = "START"; // Reset state after completion
       userState.serviceId = null;
@@ -187,10 +210,7 @@ app.post("/telegram-webhook", async (req, res) => {
       const service = services[userState.serviceId];
       userState.details.customerInput = text; 
       
-      await sendMessage("telegram", chatId, `Asante! Tumepokea maelezo yako kwa ajili ya *${service.name}*. Malipo yamesimuliwa kufanikiwa.`);
-      
-      // Simulate successful payment and execute service
-      userState.state = "SERVICE_PROCESSING";
+      // Simulate successful payment and execute service immediately
       await executeService(userState.serviceId, userState.details, "telegram", chatId);
       userState.state = "START";
       userState.serviceId = null;
