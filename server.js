@@ -11,7 +11,7 @@ app.use(bodyParser.json());
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // Render uses 10000 by default
 
 // Initialize Telegram Bot
 const telegramBot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
@@ -29,6 +29,11 @@ const services = [
   { id: "ecitizen_acc", name: "ECitizen Account Creation", price: 100 },
   { id: "cert_search", name: "Academic Certificate Search", price: 200 },
 ];
+
+// --- ROOT ROUTE (Fixes "Cannot GET /") ---
+app.get("/", (req, res) => {
+  res.status(200).send("<h1>E-cyber Assistant is LIVE! 🚀</h1><p>Bot is running and ready for Telegram & WhatsApp.</p>");
+});
 
 // --- TELEGRAM LOGIC ---
 const showTelegramMenu = (chatId) => {
@@ -56,7 +61,7 @@ telegramBot.on("callback_query", async (query) => {
       // --- SKIP PAYMENT LOGIC ---
       telegramBot.sendMessage(chatId, `✅ Malipo ya KES ${service.price} yamepokelewa! (Test Mode)\n\nNaanza kufanya automation ya *${service.name}* sasa hivi...`, { parse_mode: "Markdown" });
       
-      // Hapa ndipo automation yako inapoanza (mfano: KRA NIL)
+      // Automation logic would be triggered here
       console.log(`Starting automation for ${service.name} on Telegram...`);
     }
   }
