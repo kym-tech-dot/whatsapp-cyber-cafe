@@ -20,7 +20,7 @@ try {
 } catch (error) { console.error('Error loading services:', error.message); }
 
 // Simple in-memory state for users (resets on server restart)
-const userStates = {}; // { userId: { state: 'awaiting_service_selection', serviceId: null, details: {} } }
+const userStates = {}; 
 
 async function sendMessage(platform, to, text) {
   try {
@@ -58,37 +58,43 @@ app.post('/webhook', async (req, res) => {
     const from = message.from;
     const text = message.text.body.trim().toLowerCase();
     
-    let userState = userStates[from] || { state: 'awaiting_service_selection', serviceId: null, details: {} };
+    // Initialize state if not exists
+    if (!userStates[from]) {
+      userStates[from] = { state: 'START', serviceId: null };
+    }
+    
+    let userState = userStates[from];
 
-    if (text === 'menu' || text === 'hi' || text === 'habari' || text === '/start') {
-      userState = { state: 'awaiting_service_selection', serviceId: null, details: {} };
+    // Reset to menu if user says hi/menu
+    if (['menu', 'hi', 'habari', '/start', 'mambo'].includes(text)) {
+      userState.state = 'AWAITING_SELECTION';
       await sendMessage('whatsapp', from, generateMenuText());
-    } else if (userState.state === 'awaiting_service_selection') {
+    } 
+    // Handle service selection
+    else if (userState.state === 'AWAITING_SELECTION' || userState.state === 'START') {
       const selectedIndex = parseInt(text) - 1;
       if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < serviceKeys.length) {
         const serviceId = serviceKeys[selectedIndex];
         const service = services[serviceId];
         userState.serviceId = serviceId;
-        userState.state = 'awaiting_service_details';
-        userStates[from] = userState;
-        await sendMessage('whatsapp', from, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nIli kuendelea, tafadhali toa taarifa zifuatazo (mfano: Jina Kamili, Namba ya Kitambulisho, n.k. kulingana na huduma):`);
+        userState.state = 'AWAITING_DETAILS';
+        await sendMessage('whatsapp', from, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma maelezo yako (mfano: Jina Kamili na Namba ya Kitambulisho) ili tuanze kushughulikia.`);
       } else {
-        await sendMessage('whatsapp', from, "Samahani, sijaelewa. Andika *Menu* kuona huduma zetu au chagua namba sahihi.");
+        await sendMessage('whatsapp', from, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
       }
-    } else if (userState.state === 'awaiting_service_details') {
+    } 
+    // Handle detail submission
+    else if (userState.state === 'AWAITING_DETAILS') {
       const service = services[userState.serviceId];
-      // Here, you would process the details provided by the user for the selected service.
-      // For now, we'll just acknowledge and reset the state.
-      userState.details.input = text; // Store the user's input
-      userState.state = 'service_processing';
-      userStates[from] = userState;
-      await sendMessage('whatsapp', from, `Asante! Tumepokea maelezo yako kwa ajili ya huduma ya *${service.name}*. Tunashughulikia maombi yako sasa na tutakujulisha punde. Asante kwa kutumia E-cyber!`);
-      // Reset state after 
-kazi.
-      userStates[from] = { state: 'awaiting_service_selection', serviceId: null, details: {} }; // Reset state
-    } else {
-      await sendMessage('whatsapp', from, "Samahani, sijaelewa. Andika *Menu* kuona huduma zetu.");
+      await sendMessage('whatsapp', from, `Asante! Tumepokea maelezo yako kwa ajili ya *${service.name}*. Tunashughulikia sasa na tutakujulisha punde.`);
+      userState.state = 'START'; // Reset after completion
+      userState.serviceId = null;
+    } 
+    else {
+      await sendMessage('whatsapp', from, "Karibu E-cyber! Andika *Menu* kuona huduma zetu.");
+      userState.state = 'AWAITING_SELECTION';
     }
+    
     userStates[from] = userState;
   }
   res.sendStatus(200);
@@ -101,35 +107,36 @@ app.post('/telegram-webhook', async (req, res) => {
     const chatId = message.chat.id;
     const text = message.text.trim().toLowerCase();
 
-    let userState = userStates[chatId] || { state: 'awaiting_service_selection', serviceId: null, details: {} };
+    if (!userStates[chatId]) {
+      userStates[chatId] = { state: 'START', serviceId: null };
+    }
+    
+    let userState = userStates[chatId];
 
-    if (text === '/start' || text === 'menu' || text === 'hi') {
-      userState = { state: 'awaiting_service_selection', serviceId: null, details: {} };
+    if (['/start', 'menu', 'hi', 'habari'].includes(text)) {
+      userState.state = 'AWAITING_SELECTION';
       await sendMessage('telegram', chatId, generateMenuText());
-    } else if (userState.state === 'awaiting_service_selection') {
+    } else if (userState.state === 'AWAITING_SELECTION' || userState.state === 'START') {
       const selectedIndex = parseInt(text) - 1;
       if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < serviceKeys.length) {
         const serviceId = serviceKeys[selectedIndex];
         const service = services[serviceId];
         userState.serviceId = serviceId;
-        userState.state = 'awaiting_service_details';
-        userStates[chatId] = userState;
-        await sendMessage('telegram', chatId, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nIli kuendelea, tafadhali toa taarifa zifuatazo (mfano: Jina Kamili, Namba ya Kitambulisho, n.k. kulingana na huduma):`);
+        userState.state = 'AWAITING_DETAILS';
+        await sendMessage('telegram', chatId, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma maelezo yako (mfano: Jina Kamili na Namba ya Kitambulisho) ili tuanze kushughulikia.`);
       } else {
-        await sendMessage('telegram', chatId, "Samahani, sijaelewa. Andika *Menu* kuona huduma zetu au chagua namba sahihi.");
+        await sendMessage('telegram', chatId, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
       }
-    } else if (userState.state === 'awaiting_service_details') {
+    } else if (userState.state === 'AWAITING_DETAILS') {
       const service = services[userState.serviceId];
-      // Here, you would process the details provided by the user for the selected service.
-      // For now, we'll just acknowledge and reset the state.
-      userState.details.input = text; // Store the user's input
-      userState.state = 'service_processing';
-      userStates[chatId] = userState;
-      await sendMessage('telegram', chatId, `Asante! Tumepokea maelezo yako kwa ajili ya huduma ya *${service.name}*. Tunashughulikia maombi yako sasa na tutakujulisha punde. Asante kwa kutumia E-cyber!`);
-      userStates[chatId] = { state: 'awaiting_service_selection', serviceId: null, details: {} }; // Reset state
+      await sendMessage('telegram', chatId, `Asante! Tumepokea maelezo yako kwa ajili ya *${service.name}*. Tunashughulikia sasa na tutakujulisha punde.`);
+      userState.state = 'START';
+      userState.serviceId = null;
     } else {
-      await sendMessage('telegram', chatId, "Samahani, sijaelewa. Andika *Menu* kuona huduma zetu.");
+      await sendMessage('telegram', chatId, "Karibu E-cyber! Andika *Menu* kuona huduma zetu.");
+      userState.state = 'AWAITING_SELECTION';
     }
+    
     userStates[chatId] = userState;
   }
   res.sendStatus(200);
