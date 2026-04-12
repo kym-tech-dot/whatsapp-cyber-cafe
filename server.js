@@ -1,7 +1,5 @@
 const express = require("express");
 const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
 const app = express();
 app.use(express.json());
 
@@ -10,27 +8,25 @@ const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-// Function to load services from services.json
-function loadServices() {
-  try {
-    const filePath = path.join(__dirname, "services.json");
-    if (fs.existsSync(filePath)) {
-      const data = fs.readFileSync(filePath, "utf8");
-      console.log("services.json loaded successfully.");
-      return JSON.parse(data);
-    } else {
-      console.error("services.json not found at:", filePath);
-      return {};
-    }
-  } catch (error) {
-    console.error("Error loading services:", error.message);
-    return {};
-  }
-}
-
-// Load services once when the server starts
-let services = loadServices();
-let serviceKeys = Object.keys(services);
+// Services embedded directly into the code
+const services = {
+  "KRA_NIL": { "name": "KRA NIL Returns", "price": 50, "keywords": ["kra", "nil", "tax"] },
+  "SHA_REG": { "name": "SHA Registration", "price": 100, "keywords": ["sha", "health", "nhif"] },
+  "GOOD_CONDUCT": { "name": "Police Clearance (Good Conduct)", "price": 1250, "keywords": ["conduct", "police", "cid"] },
+  "DL_RENEWAL": { "name": "NTSA DL Renewal (3 Years)", "price": 750, "keywords": ["dl", "driving", "ntsa"] },
+  "BUSINESS_SEARCH": { "name": "Business Name Search", "price": 250, "keywords": ["business", "name", "brs"] },
+  "HELB_APP": { "name": "HELB Loan Application", "price": 200, "keywords": ["helb", "loan", "student"] },
+  "KRA_PIN": { "name": "KRA PIN Registration", "price": 150, "keywords": ["pin", "new pin"] },
+  "PASSPORT_APP": { "name": "Passport Application", "price": 5050, "keywords": ["passport", "immigration"] },
+  "LOGBOOK_TRANSFER": { "name": "NTSA Logbook Transfer", "price": 3550, "keywords": ["logbook", "transfer", "car"] },
+  "ID_REPLACEMENT": { "name": "ID Card Replacement", "price": 1200, "keywords": ["id", "replacement", "lost id"] },
+  "TAX_COMPLIANCE": { "name": "Tax Compliance Certificate", "price": 150, "keywords": ["compliance", "tcc", "tax certificate"] },
+  "BIRTH_CERT": { "name": "Birth Certificate Application", "price": 350, "keywords": ["birth", "certificate"] },
+  "TSC_APP": { "name": "TSC Number Application", "price": 1300, "keywords": ["tsc", "teacher"] },
+  "NHIF_SHA": { "name": "NHIF to SHA Migration", "price": 100, "keywords": ["migration", "nhif to sha"] },
+  "CV_PRO": { "name": "Professional CV Generation", "price": 200, "keywords": ["cv", "resume", "job"] }
+};
+const serviceKeys = Object.keys(services);
 
 // Simple in-memory state for users (resets on server restart)
 const userStates = {}; 
@@ -46,7 +42,6 @@ async function sendMessage(platform, to, text) {
     }
   } catch (e) {
     console.error("Error sending message:", e.message);
-    // Log the full error response if available for more detailed debugging
     if (e.response) {
       console.error("Error response data:", e.response.data);
     }
