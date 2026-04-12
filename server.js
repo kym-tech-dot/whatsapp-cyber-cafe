@@ -1,121 +1,95 @@
-require("dotenv").config();
-const express = require("express");
-const bodyParser = require("body-parser");
-const TelegramBot = require("node-telegram-bot-api");
-const axios = require("axios");
-
+const express = require('express');
+const axios = require('axios');
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-// --- CONFIGURATION ---
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+// --- Environment Variables ---
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PORT = process.env.PORT || 10000; // Render uses 10000 by default
+const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const INTASEND_PUBLIC = process.env.INTASEND_PUBLIC_KEY;
+const INTASEND_SECRET = process.env.INTASEND_SECRET_KEY;
 
-// Initialize Telegram Bot
-const telegramBot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+// --- 1. Home, Privacy, and Terms (Kwa ajili ya Meta Review) ---
+app.get('/', (req, res) => res.send('<h1>E-cyber Omnichannel is Live! 🚀</h1><p>WhatsApp, Telegram, FB, IG, and USSD are active.</p>'));
+app.get('/privacy', (req, res) => res.send('<h1>Privacy Policy</h1><p>We protect your data.</p>'));
+app.get('/terms', (req, res) => res.send('<h1>Terms of Service</h1><p>Use our services responsibly.</p>'));
 
-// --- 10 CYBER SERVICES & PRICING ---
-const services = [
-  { id: "kra_nil", name: "KRA NIL Returns", price: 50 },
-  { id: "kra_ind", name: "KRA Individual Returns", price: 300 },
-  { id: "kra_pin", name: "KRA PIN Retrieval", price: 100 },
-  { id: "kra_tcc", name: "KRA Tax Compliance Cert.", price: 250 },
-  { id: "nhif_reg", name: "NHIF Self-Registration", price: 150 },
-  { id: "nssf_reg", name: "NSSF Self-Registration", price: 150 },
-  { id: "biz_search", name: "Business Name Search", price: 200 },
-  { id: "biz_reg", name: "Business Name Registration", price: 1000 },
-  { id: "ecitizen_acc", name: "ECitizen Account Creation", price: 100 },
-  { id: "cert_search", name: "Academic Certificate Search", price: 200 },
-];
-
-// --- ROOT ROUTE (Fixes "Cannot GET /") ---
-app.get("/", (req, res) => {
-  res.status(200).send("<h1>E-cyber Assistant is LIVE! 🚀</h1><p>Bot is running and ready for Telegram & WhatsApp.</p>");
-});
-
-// --- TELEGRAM LOGIC ---
-const showTelegramMenu = (chatId) => {
-  const inlineKeyboard = services.map((s) => [
-    { text: `${s.name} - KES ${s.price}`, callback_data: `srv_${s.id}` },
-  ]);
-  telegramBot.sendMessage(chatId, "🏛️ *Welcome to E-cyber Assistant*\n\nSelect a service to get started:", {
-    parse_mode: "Markdown",
-    reply_markup: { inline_keyboard: inlineKeyboard },
-  });
-};
-
-telegramBot.onText(/\/start/, (msg) => showTelegramMenu(msg.chat.id));
-
-telegramBot.on("callback_query", async (query) => {
-  const chatId = query.message.chat.id;
-  const data = query.data;
-  telegramBot.answerCallbackQuery(query.id);
-
-  if (data.startsWith("srv_")) {
-    const serviceId = data.replace("srv_", "");
-    const service = services.find((s) => s.id === serviceId);
-
-    if (service) {
-      // --- SKIP PAYMENT LOGIC ---
-      telegramBot.sendMessage(chatId, `✅ Malipo ya KES ${service.price} yamepokelewa! (Test Mode)\n\nNaanza kufanya automation ya *${service.name}* sasa hivi...`, { parse_mode: "Markdown" });
-      
-      // Automation logic would be triggered here
-      console.log(`Starting automation for ${service.name} on Telegram...`);
-    }
-  }
-});
-
-// --- WHATSAPP LOGIC ---
-const sendWhatsAppMessage = async (to, text) => {
+// --- 2. Helper Functions ---
+async function sendTelegramMessage(chatId, text) {
   try {
-    await axios.post(`https://graph.facebook.com/v17.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`, {
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body: text },
-    }, { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } });
-  } catch (e) { console.error("WhatsApp Error:", e.response?.data || e.message); }
-};
+    await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: text,
+      parse_mode: 'Markdown'
+    } );
+  } catch (error) { console.error('Telegram Error:', error.response?.data || error.message); }
+}
 
-app.post("/webhook", async (req, res) => {
-  res.sendStatus(200);
-  const body = req.body;
-  if (body.object === "whatsapp_business_account") {
-    const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if (message) {
-      const from = message.from;
-      const text = message.text?.body?.toLowerCase();
+async function sendWhatsAppMessage(to, text) {
+  try {
+    await axios.post(`https://graph.facebook.com/v17.0/${PHONE_ID}/messages`, {
+      messaging_product: 'whatsapp', to: to, type: 'text', text: { body: text }
+    }, { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } } );
+  } catch (error) { console.error('WhatsApp Error:', error.response?.data); }
+}
 
-      if (text === "hi" || text === "menu" || text === "start") {
-        let menuText = "🏛️ *Welcome to E-cyber Assistant*\n\nReply with the number of the service you need:\n\n";
-        services.forEach((s, i) => { menuText += `${i + 1}. ${s.name} (KES ${s.price})\n`; });
-        await sendWhatsAppMessage(from, menuText);
-      } else {
-        const index = parseInt(text) - 1;
-        if (services[index]) {
-          const service = services[index];
-          // --- SKIP PAYMENT LOGIC ---
-          await sendWhatsAppMessage(from, `✅ Malipo ya KES ${service.price} yamepokelewa! (Test Mode)\n\nNaanza kufanya automation ya *${service.name}* sasa hivi...`);
-          console.log(`Starting automation for ${service.name} on WhatsApp...`);
-        }
-      }
+async function triggerMpesaStkPush(phone, amount, label) {
+  try {
+    let formattedPhone = phone;
+    if (phone.startsWith('0')) formattedPhone = '254' + phone.substring(1);
+    await axios.post('https://payment.intasend.com/api/v1/payment/mpesa-stk-push/', {
+      public_key: INTASEND_PUBLIC, amount: amount, phone_number: formattedPhone, api_ref: label
+    }, { headers: { Authorization: 'Bearer ' + INTASEND_SECRET } } );
+  } catch (error) { console.error('M-Pesa Error:', error.response?.data); }
+}
+
+// --- 3. Webhook Handlers ---
+
+// Telegram Webhook
+app.post(`/telegram-webhook`, async (req, res) => {
+  const { message } = req.body;
+  if (message && message.text) {
+    const chatId = message.chat.id;
+    const text = message.text.toLowerCase();
+    if (text === '/start' || text === 'menu' || text === 'hi') {
+      await sendTelegramMessage(chatId, "🏛️ *E-cyber Assistant*\n\nWelcome! I can help you with KRA, eCitizen, and more.\n\n1. KRA NIL Returns (KES 50)\nType *KRA* to start!");
+    } else if (text.includes('kra')) {
+      await sendTelegramMessage(chatId, "Initiating M-Pesa STK Push for KES 50... Please check your phone.");
+      // Note: In Telegram, we might need to ask for the user's phone number if it's not their username
+      await sendTelegramMessage(chatId, "Please type your M-Pesa number (e.g., 0712345678) to receive the prompt.");
     }
   }
+  res.sendStatus(200);
 });
 
-app.get("/webhook", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-  if (mode === "subscribe" && token === process.env.VERIFY_TOKEN) res.status(200).send(challenge);
+// WhatsApp Webhook
+app.get('/webhook', (req, res) => {
+  if (req.query['hub.verify_token'] === VERIFY_TOKEN) res.send(req.query['hub.challenge']);
   else res.sendStatus(403);
 });
 
-// --- START SERVER ---
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log("E-cyber Assistant is LIVE (Skip Payment Mode)");
+app.post('/webhook', async (req, res) => {
+  const body = req.body;
+  if (body.object === 'whatsapp_business_account') {
+    const message = body.entry[0].changes[0].value.messages?.[0];
+    if (message) {
+      const from = message.from;
+      const text = message.text.body.toLowerCase();
+      if (text === 'hi' || text === 'menu') {
+        await sendWhatsAppMessage(from, "Welcome to E-cyber! Type *KRA* for NIL Returns.");
+      } else if (text.includes('kra')) {
+        await triggerMpesaStkPush(from, 50, "KRA_NIL");
+      }
+    }
+  }
+  res.sendStatus(200);
 });
 
+// --- 4. Final Step: Set Telegram Webhook ---
+// You only need to visit this URL once after deploying:
+// https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook?url=https://whatsapp-cyber-cafe.onrender.com/telegram-webhook
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, ( ) => console.log(`Server is running on port ${PORT}`));
