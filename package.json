@@ -4,7 +4,8 @@
   "description": "WhatsApp and Telegram bot for E-cyber services with KRA automation",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "axios": "^1.6.0",
