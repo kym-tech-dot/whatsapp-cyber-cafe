@@ -98,16 +98,28 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     const page = await browser.newPage();
     await page.goto("https://itax.kra.go.ke/KRA-Portal/");
 
-    // Enter KRA PIN
+    // Wait for the PIN input field to be visible and clickable
+    await page.waitForSelector("#logid", { visible: true });
     await page.type("#logid", kraPin);
-    await page.click("#loginButton"); // Click Continue
+
+    // Click Continue and wait for navigation
+    await page.click("#loginButton"); 
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
-    // Enter password
+    // Handle potential pop-up (e.g., Taxpayer Notice) if it appears
+    const popupCloseButton = await page.$("button.close"); // Adjust selector if needed
+    if (popupCloseButton) {
+      await popupCloseButton.click();
+      await page.waitForTimeout(1000); // Give some time for the popup to close
+    }
+
+    // Wait for the password input field to be visible and clickable
+    await page.waitForSelector("#password", { visible: true });
     await page.type("#password", kraPassword);
 
     // Solve Captcha
-    const captchaTextElement = await page.$("label[for=\'captcahText\"]"); // Find the label for captcha text
+    await page.waitForSelector("label[for=\'captcahText\"]", { visible: true });
+    const captchaTextElement = await page.$("label[for=\'captcahText\"]"); 
     let captchaText = "";
     if (captchaTextElement) {
       captchaText = await page.evaluate(el => el.innerText, captchaTextElement);
@@ -119,28 +131,34 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     const captchaAnswer = solveCaptcha(captchaText);
 
     if (captchaAnswer !== null) {
-      await page.type("#captcahText", String(captchaAnswer)); // Assuming input field has id \"captcahText\" or similar
+      await page.waitForSelector("#captcahText", { visible: true });
+      await page.type("#captcahText", String(captchaAnswer)); 
     } else {
       throw new Error("Failed to solve captcha. Captcha text not found or unparseable.");
     }
 
-    await page.click("#loginButton"); // Click Login
+    // Click Login and wait for navigation
+    await page.click("#loginButton"); 
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
     // Check for successful login (example: look for a dashboard element)
-    const isLoggedIn = await page.$("#dashboardMenu") !== null; // Example selector
+    const isLoggedIn = await page.$("#dashboardMenu") !== null; 
     if (!isLoggedIn) {
       throw new Error("Login failed. Check PIN/Password or Captcha.");
     }
 
     // Navigate to \"File Nil Return\" (this path needs to be verified on the actual portal)
-    await page.click("a[href*=\"fileNilReturn\"]"); // Example selector, needs to be accurate
+    await page.waitForSelector("a[href*=\"fileNilReturn\"]", { visible: true });
+    await page.click("a[href*=\"fileNilReturn\"]"); 
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
     // Select tax obligation, tax period, etc. and submit
-    await page.select("#taxObligation", "ITR"); // Example: Select Income Tax Resident
-    await page.select("#taxPeriod", "2023"); // Example: Select tax period
-    await page.click("#submitNilReturn"); // Example: Click submit button
+    await page.waitForSelector("#taxObligation", { visible: true });
+    await page.select("#taxObligation", "ITR"); 
+    await page.waitForSelector("#taxPeriod", { visible: true });
+    await page.select("#taxPeriod", "2023"); 
+    await page.waitForSelector("#submitNilReturn", { visible: true });
+    await page.click("#submitNilReturn"); 
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
     const successMessage = await page.evaluate(() => document.body.innerText.includes("Return Submitted Successfully"));
