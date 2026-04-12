@@ -73,9 +73,9 @@ function solveCaptcha(captchaText) {
       const num2 = parseInt(parts[3]);
 
       switch (operator) {
-        case '+': return num1 + num2;
-        case '-': return num1 - num2;
-        case '*': return num1 * num2;
+        case "+": return num1 + num2;
+        case "-": return num1 - num2;
+        case "*": return num1 * num2;
         default: return null;
       }
     }
@@ -93,7 +93,7 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, // Explicitly use environment variable
     });
     const page = await browser.newPage();
     await page.goto("https://itax.kra.go.ke/KRA-Portal/");
@@ -107,7 +107,7 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     await page.type("#password", kraPassword);
 
     // Solve Captcha
-    const captchaTextElement = await page.$("label[for=\'captcahText\']"); // Find the label for captcha text
+    const captchaTextElement = await page.$("label[for=\'captcahText\"]"); // Find the label for captcha text
     let captchaText = "";
     if (captchaTextElement) {
       captchaText = await page.evaluate(el => el.innerText, captchaTextElement);
@@ -119,7 +119,7 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
     const captchaAnswer = solveCaptcha(captchaText);
 
     if (captchaAnswer !== null) {
-      await page.type("#captcahText", String(captchaAnswer)); // Assuming input field has id \'captcahText\' or similar
+      await page.type("#captcahText", String(captchaAnswer)); // Assuming input field has id \"captcahText\" or similar
     } else {
       throw new Error("Failed to solve captcha. Captcha text not found or unparseable.");
     }
@@ -133,7 +133,7 @@ async function performKRA_NIL_Return(kraPin, kraPassword) {
       throw new Error("Login failed. Check PIN/Password or Captcha.");
     }
 
-    // Navigate to \'File Nil Return\' (this path needs to be verified on the actual portal)
+    // Navigate to \"File Nil Return\" (this path needs to be verified on the actual portal)
     await page.click("a[href*=\"fileNilReturn\"]"); // Example selector, needs to be accurate
     await page.waitForNavigation({ waitUntil: "networkidle0" });
 
