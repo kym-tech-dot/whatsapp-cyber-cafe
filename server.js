@@ -63,38 +63,78 @@ function generateMenuText() {
   return menu;
 }
 
+// Function to solve simple math captchas
+function solveCaptcha(captchaText) {
+  try {
+    const parts = captchaText.match(/(\d+)\s*([+\-*])\s*(\d+)/);
+    if (parts && parts.length === 4) {
+      const num1 = parseInt(parts[1]);
+      const operator = parts[2];
+      const num2 = parseInt(parts[3]);
+
+      switch (operator) {
+        case '+': return num1 + num2;
+        case '-': return num1 - num2;
+        case '*': return num1 * num2;
+        default: return null;
+      }
+    }
+    return null;
+  } catch (e) {
+    console.error("Error solving captcha:", e);
+    return null;
+  }
+}
+
 // KRA NIL Return automation function
 async function performKRA_NIL_Return(kraPin, kraPassword) {
   let browser;
   try {
-    browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
     const page = await browser.newPage();
-    await page.goto('https://itax.kra.go.ke/KRA-Portal/');
+    await page.goto("https://itax.kra.go.ke/KRA-Portal/");
 
     // Enter KRA PIN
-    await page.type('#logid', kraPin);
-    await page.click('#loginButton'); // Assuming there's a login button or it proceeds automatically
-    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+    await page.type("#logid", kraPin);
+    await page.click("#loginButton"); // Click Continue
+    await page.waitForNavigation({ waitUntil: "networkidle0" });
 
-    // Enter password and solve captcha (this part is highly dynamic and complex)
-    // For now, we'll assume successful login for demonstration
-    // In a real scenario, you'd need to implement OCR for captcha or other bypass methods
-    await page.type('#password', kraPassword);
-    await page.click('#loginButton'); // Assuming another login button after password
-    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+    // Enter password
+    await page.type("#password", kraPassword);
+
+    // Solve Captcha
+    const captchaText = await page.$eval("#captcahText", el => el.innerText); // Selector needs to be verified
+    const captchaAnswer = solveCaptcha(captchaText);
+
+    if (captchaAnswer !== null) {
+      await page.type("#captcahAnswer", String(captchaAnswer)); // Selector needs to be verified
+    } else {
+      throw new Error("Failed to solve captcha.");
+    }
+
+    await page.click("#loginButton"); // Click Login
+    await page.waitForNavigation({ waitUntil: "networkidle0" });
+
+    // Check for successful login (example: look for a dashboard element)
+    const isLoggedIn = await page.$("#dashboardMenu") !== null; // Example selector
+    if (!isLoggedIn) {
+      throw new Error("Login failed. Check PIN/Password or Captcha.");
+    }
 
     // Navigate to 'File Nil Return' (this path needs to be verified on the actual portal)
-    await page.click('a[href*="fileNilReturn"]'); // Example selector, needs to be accurate
-    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+    // This part is highly dependent on the KRA portal's internal navigation
+    // For demonstration, let's assume a direct link or menu item
+    await page.click("a[href*=\"fileNilReturn\"]"); // Example selector, needs to be accurate
+    await page.waitForNavigation({ waitUntil: "networkidle0" });
 
     // Select tax obligation, tax period, etc. and submit
     // These steps are highly specific to the KRA portal UI and need careful implementation
-    await page.select('#taxObligation', 'ITR'); // Example: Select Income Tax Resident
-    await page.select('#taxPeriod', '2023'); // Example: Select tax period
-    await page.click('#submitNilReturn'); // Example: Click submit button
-    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+    await page.select("#taxObligation", "ITR"); // Example: Select Income Tax Resident
+    await page.select("#taxPeriod", "2023"); // Example: Select tax period
+    await page.click("#submitNilReturn"); // Example: Click submit button
+    await page.waitForNavigation({ waitUntil: "networkidle0" });
 
-    const successMessage = await page.evaluate(() => document.body.innerText.includes('Return Submitted Successfully'));
+    const successMessage = await page.evaluate(() => document.body.innerText.includes("Return Submitted Successfully"));
     if (successMessage) {
       return { success: true, message: "KRA NIL Return filed successfully!" };
     } else {
@@ -226,7 +266,7 @@ app.post("/webhook", async (req, res) => {
       }
     } 
     else if (userState.state === "AWAITING_KRA_CREDENTIALS") {
-      const [kraPin, kraPassword] = text.split(' ');
+      const [kraPin, kraPassword] = text.split(" ");
       if (kraPin && kraPassword) {
         userState.details.kraPin = kraPin.toUpperCase();
         userState.details.kraPassword = kraPassword;
@@ -246,7 +286,7 @@ app.post("/webhook", async (req, res) => {
       // Simulate successful payment and execute service immediately
       userState.state = "SERVICE_PROCESSING";
       await executeService(userState.serviceId, userState.details, "whatsapp", from);
-      userState.state = "START"; // Reset state after completion
+      userState.state = "START";
       userState.serviceId = null;
     } 
     else {
@@ -293,7 +333,7 @@ app.post("/telegram-webhook", async (req, res) => {
         await sendMessage("telegram", chatId, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
       }
     } else if (userState.state === "AWAITING_KRA_CREDENTIALS") {
-      const [kraPin, kraPassword] = text.split(' ');
+      const [kraPin, kraPassword] = text.split(" ");
       if (kraPin && kraPassword) {
         userState.details.kraPin = kraPin.toUpperCase();
         userState.details.kraPassword = kraPassword;
