@@ -1,12 +1,25 @@
 const express = require("express");
 const axios = require("axios");
 const app = express();
+// const IntaSend = require("intasend-node"); // No longer needed for simulated payment
+
 app.use(express.json());
 
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+
+// IntaSend API credentials (no longer actively used for payment, but kept for future reference)
+const INTASEND_PUBLISHABLE_KEY = process.env.INTASEND_PUBLISHABLE_KEY || "YOUR_INTASEND_PUBLISHABLE_KEY";
+const INTASEND_SECRET_KEY = process.env.INTASEND_SECRET_KEY || "YOUR_INTASEND_SECRET_KEY";
+const INTASEND_TEST_MODE = process.env.INTASEND_TEST_MODE === "true"; 
+
+// const intasend = new IntaSend(
+//   INTASEND_PUBLISHABLE_KEY,
+//   INTASEND_SECRET_KEY,
+//   INTASEND_TEST_MODE
+// );
 
 // Services embedded directly into the code
 const services = {
@@ -61,6 +74,28 @@ function generateMenuText() {
   return menu;
 }
 
+// Service execution logic
+async function executeService(serviceId, details, platform, userId) {
+  const service = services[serviceId];
+  let resultMessage = "";
+
+  switch (serviceId) {
+    case "KRA_NIL":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nTumewasilisha NIL return yako kwa KRA. Unaweza kupakua risiti yako hapa: [Link ya Risiti]`;
+      break;
+    case "SHA_REG":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUsajili wako wa SHA umekamilika. Namba yako ya usajili ni: SHA-XXXXXX.`;
+      break;
+    case "CV_PRO":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nCV yako ya kitaalamu imetengenezwa. Unaweza kuipakua hapa: [Link ya CV]`;
+      break;
+    default:
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nAsante kwa kutumia E-cyber. Tutawasiliana nawe hivi punde kwa maelezo zaidi.`;
+  }
+
+  await sendMessage(platform, userId, resultMessage);
+}
+
 app.get("/", (req, res) => res.send("E-cyber Smart Assistant is Live! 🚀"));
 
 // WhatsApp Webhook
@@ -76,19 +111,16 @@ app.post("/webhook", async (req, res) => {
     const from = message.from;
     const text = message.text.body.trim().toLowerCase();
     
-    // Initialize state if not exists
     if (!userStates[from]) {
-      userStates[from] = { state: "START", serviceId: null };
+      userStates[from] = { state: "START", serviceId: null, details: {} };
     }
     
     let userState = userStates[from];
 
-    // Reset to menu if user says hi/menu
     if (["menu", "hi", "habari", "/start", "mambo"].includes(text)) {
       userState.state = "AWAITING_SELECTION";
       await sendMessage("whatsapp", from, generateMenuText());
     } 
-    // Handle service selection
     else if (userState.state === "AWAITING_SELECTION" || userState.state === "START") {
       const selectedIndex = parseInt(text) - 1;
       if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < serviceKeys.length) {
@@ -101,11 +133,17 @@ app.post("/webhook", async (req, res) => {
         await sendMessage("whatsapp", from, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
       }
     } 
-    // Handle detail submission
+    // Handle detail submission and SIMULATE payment success
     else if (userState.state === "AWAITING_DETAILS") {
       const service = services[userState.serviceId];
-      await sendMessage("whatsapp", from, `Asante! Tumepokea maelezo yako kwa ajili ya *${service.name}*. Tunashughulikia sasa na tutakujulisha punde.`);
-      userState.state = "START"; // Reset after completion
+      userState.details.customerInput = text; 
+      
+      await sendMessage("whatsapp", from, `Asante! Tumepokea maelezo yako kwa ajili ya *${service.name}*. Malipo yamesimuliwa kufanikiwa.`);
+      
+      // Simulate successful payment and execute service
+      userState.state = "SERVICE_PROCESSING";
+      await executeService(userState.serviceId, userState.details, "whatsapp", from);
+      userState.state = "START"; // Reset state after completion
       userState.serviceId = null;
     } 
     else {
@@ -126,7 +164,7 @@ app.post("/telegram-webhook", async (req, res) => {
     const text = message.text.trim().toLowerCase();
 
     if (!userStates[chatId]) {
-      userStates[chatId] = { state: "START", serviceId: null };
+      userStates[chatId] = { state: "START", serviceId: null, details: {} };
     }
     
     let userState = userStates[chatId];
@@ -147,10 +185,17 @@ app.post("/telegram-webhook", async (req, res) => {
       }
     } else if (userState.state === "AWAITING_DETAILS") {
       const service = services[userState.serviceId];
-      await sendMessage("telegram", chatId, `Asante! Tumepokea maelezo yako kwa ajili ya *${service.name}*. Tunashughulikia sasa na tutakujulisha punde.`);
+      userState.details.customerInput = text; 
+      
+      await sendMessage("telegram", chatId, `Asante! Tumepokea maelezo yako kwa ajili ya *${service.name}*. Malipo yamesimuliwa kufanikiwa.`);
+      
+      // Simulate successful payment and execute service
+      userState.state = "SERVICE_PROCESSING";
+      await executeService(userState.serviceId, userState.details, "telegram", chatId);
       userState.state = "START";
       userState.serviceId = null;
-    } else {
+    } 
+    else {
       await sendMessage("telegram", chatId, "Karibu E-cyber! Andika *Menu* kuona huduma zetu.");
       userState.state = "AWAITING_SELECTION";
     }
