@@ -1,9 +1,20 @@
-const {join} = require('path');
-
-/**
- * @type {import("puppeteer").Configuration}
- */
-module.exports = {
-  // Changes the cache location for Puppeteer.
-  cacheDirectory: join(__dirname, '.cache', 'puppeteer'),
-};
+package.json
+{
+  "name": "e-cyber-assistant",
+  "version": "1.0.0",
+  "description": "WhatsApp Bot for KRA NIL Returns and other services",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "postinstall": "npx puppeteer install"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.26.0",
+    "qrcode-terminal": "^0.12.0",
+    "puppeteer": "^21.0.0",
+    "glob": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
