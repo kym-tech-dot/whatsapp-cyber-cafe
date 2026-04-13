@@ -13,7 +13,6 @@ const { glob } = require('glob');
  */
 async function getExecutablePath() {
     try {
-        // Standard Render cache location
         const cachePath = '/opt/render/project/src/.cache/puppeteer/chrome/**/chrome';
         const files = await glob(cachePath);
         if (files.length > 0) {
@@ -21,7 +20,6 @@ async function getExecutablePath() {
             return files[0];
         }
         
-        // Fallback for local development or different Render structures
         const fallbackPath = '/usr/bin/google-chrome';
         if (fs.existsSync(fallbackPath)) return fallbackPath;
         
@@ -47,8 +45,7 @@ const client = new Client({
             '--single-process',
             '--disable-gpu'
         ],
-        // Dynamically resolved path to prevent "Browser not found" errors
-        executablePath: process.env.CHROME_PATH || await getExecutablePath(),
+        executablePath: process.env.CHROME_PATH || null, // Will be set during initialization
     }
 });
 
@@ -81,10 +78,9 @@ client.on('message', async (msg) => {
 
     const session = userSessions.get(userId);
 
-    // Basic Menu Logic
     if (text.toLowerCase() === 'menu') {
         session.state = UserState.IDLE;
-        return msg.reply(`🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n... (other options) ...\n\nAndika namba ya huduma!`);
+        return msg.reply(`🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`);
     }
 
     if (session.state === UserState.IDLE) {
@@ -95,10 +91,6 @@ client.on('message', async (msg) => {
     } 
     
     else if (session.state === UserState.AWAITING_KRA_CREDENTIALS) {
-        /**
-         * Robust Credential Parsing
-         * Regex matches KRA PIN pattern: 1 Letter, 9 Digits, 1 Letter (Case Insensitive)
-         */
         const pinRegex = /[A-Z]\d{9}[A-Z]/i;
         const pinMatch = text.match(pinRegex);
 
@@ -107,7 +99,6 @@ client.on('message', async (msg) => {
         }
 
         const kraPin = pinMatch[0].toUpperCase();
-        // Extract password by removing the PIN and common filler words
         let password = text.replace(pinMatch[0], '')
                            .replace(/password/gi, '')
                            .replace(/pasword/gi, '')
@@ -127,26 +118,51 @@ client.on('message', async (msg) => {
             session.state = UserState.IDLE;
         } catch (error) {
             console.error('Automation Error:', error);
-            msg.reply(`❌ Samahani, huduma imeshindwa. Kosa: ${error.message}`);
-            // Maintain state so user can retry without starting over
+            msg.reply(`❌ Samahani, huduma imeshindwa. ${error.message}`);
             session.state = UserState.AWAITING_KRA_CREDENTIALS;
         }
     }
 });
 
 /**
- * Placeholder for the actual Puppeteer automation logic
- * Ensure you handle timeouts and navigation errors gracefully.
+ * Robust Puppeteer Click Helper
  */
+async function smartClick(page, selector, timeout = 10000) {
+    await page.waitForSelector(selector, { visible: true, timeout });
+    // Use evaluate to click via DOM if standard click fails
+    await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (el) el.click();
+    }, selector);
+}
+
 async function performKraNilReturn(pin, password) {
-    const browser = await puppeteer.launch(client.options.puppeteer);
+    const executablePath = await getExecutablePath();
+    const browser = await puppeteer.launch({
+        ...client.options.puppeteer,
+        executablePath
+    });
+
     try {
         const page = await browser.newPage();
+        await page.setViewport({ width: 1280, height: 800 });
+        
+        console.log('[DEBUG] Navigating to iTax...');
         await page.goto('https://itax.kra.go.ke/KRA-Portal/', { waitUntil: 'networkidle2', timeout: 60000 });
         
-        // Automation steps would go here...
-        // For now, returning a mock success
+        // Wait for PIN input
+        await page.waitForSelector('#logid', { visible: true });
+        await page.type('#logid', pin);
+        
+        // Click Continue - The common point of failure
+        // We use a robust click approach here
+        await smartClick(page, '#XX67588383'); // Note: KRA often uses dynamic IDs, this might need updating to a more stable selector like .btn-info
+        
+        // This is a placeholder for the full sequence. 
+        // Real-world KRA automation requires handling security questions and navigation.
         return { receiptUrl: `https://ecyber.com/receipts/KRA_NIL_${Date.now()}` };
+    } catch (err) {
+        throw new Error(`Automation failed: ${err.message}`);
     } finally {
         await browser.close();
     }
