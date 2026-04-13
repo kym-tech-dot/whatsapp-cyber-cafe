@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const { v4: uuidv4 } = require('uuid');
+const kraService = require('./kraService'); // Import the automation logic
 const app = express();
 
 // Health check for Render
@@ -37,13 +38,37 @@ bot.onText(/\/nilreturn/, (msg) => {
             const jobId = uuidv4();
             queue.push({ chatId: msg.chat.id, pin, password, jobId });
             bot.sendMessage(msg.chat.id, `Job added to queue! You are number ${queue.length} in line.`);
-            // In a full version, we would call the kraService here
-            bot.sendMessage(msg.chat.id, "🚀 Your request has been received. (Automation logic is being initialized...)");
+            processQueue(); // Start processing the queue
         });
     });
 });
 
+async function processQueue() {
+    if (isProcessing || queue.length === 0) return;
+    
+    isProcessing = true;
+    const job = queue.shift();
+    
+    bot.sendMessage(job.chatId, "🚀 Starting your KRA NIL return filing. Please wait...");
+    
+    try {
+        // Call the automation logic
+        const result = await kraService.fileNilReturn(job.pin, job.password);
+        
+        if (result.success) {
+            bot.sendMessage(job.chatId, `✅ Success! Your NIL return has been filed.\n\nAcknowledgement No: ${result.acknowledgementNo}`);
+        } else {
+            bot.sendMessage(job.chatId, `❌ Filing Failed: ${result.error}\n\nPlease try again later.`);
+        }
+    } catch (error) {
+        console.error(`[ERROR] Job ${job.jobId} failed:`, error);
+        bot.sendMessage(job.chatId, "❌ An unexpected error occurred. Please try again later.");
+    } finally {
+        isProcessing = false;
+        processQueue(); // Process the next job in the queue
+    }
+}
+
 bot.on('polling_error', (error) => {
     console.error('[ERROR] Telegram polling error:', error.code);
 });
-
