@@ -37,7 +37,7 @@ async function fileNilReturn(pin, password) {
         console.log(`[STEP] Navigating to KRA iTax portal for PIN: ${pin}`);
         await page.goto('https://itax.kra.go.ke/KRA-Portal/', { waitUntil: 'networkidle2', timeout: 60000 } );
 
-        // FIX: Use 'vo.userId' instead of 'vo.username'
+        // CRITICAL FIX: Use 'vo.userId' (The new KRA layout)
         await page.waitForSelector('input[name="vo.userId"]', { visible: true, timeout: 30000 });
         await page.type('input[name="vo.userId"]', pin);
         await page.click('input[name="continue"]');
@@ -63,9 +63,7 @@ async function fileNilReturn(pin, password) {
             await page.waitForNavigation({ waitUntil: 'networkidle2' });
         }
 
-        // Navigation to NIL Return (Simplified)
-        // ... (The rest of your filing logic goes here)
-
+        // Success simulation (Add full navigation here later)
         return { success: true, acknowledgementNo: 'KRA' + Math.floor(Math.random() * 1000000) };
     } catch (error) {
         console.error('[ERROR] Filing failed:', error.message);
