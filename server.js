@@ -1,263 +1,495 @@
-require("dotenv").config();
-const { Telegraf } = require("telegraf");
-const puppeteer = require("puppeteer-extra");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const fs = require("fs");
+const express = require("express");
+const axios = require("axios");
+const app = express();
+const puppeteer = require("puppeteer-extra"); // Use puppeteer-extra
+const StealthPlugin = require("puppeteer-extra-plugin-stealth"); // Import stealth plugin
+puppeteer.use(StealthPlugin()); // Use stealth plugin
+
 const path = require("path");
-const { glob } = require("glob");
+const fs = require("fs");
+const { globSync } = require("glob"); // For robust file searching
 
-// Apply stealth plugin to bypass basic bot detection
-puppeteer.use(StealthPlugin());
+app.use(express.json());
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-/**
- * Senior Engineer Note:
- * Render's environment is dynamic; we use glob to find the chrome executable.
- */
-async function getExecutablePath() {
-  try {
-    const cachePath = "/opt/render/project/src/.cache/puppeteer/chrome/**/chrome";
-    const files = await glob(cachePath);
-    if (files.length > 0) return files[0];
-    const fallbackPath = "/usr/bin/google-chrome";
-    if (fs.existsSync(fallbackPath)) return fallbackPath;
-    return null;
-  } catch (err) {
-    return null;
-  }
-}
-
-const UserState = {
-  IDLE: "IDLE",
-  AWAITING_KRA_CREDENTIALS: "AWAITING_KRA_CREDENTIALS",
-  PROCESSING: "PROCESSING",
+// Services embedded directly into the code
+const services = {
+  "KRA_NIL": { "name": "KRA NIL Returns", "price": 50, "keywords": ["kra", "nil", "tax"] },
+  "SHA_REG": { "name": "SHA Registration", "price": 100, "keywords": ["sha", "health", "nhif"] },
+  "GOOD_CONDUCT": { "name": "Police Clearance (Good Conduct)", "price": 1250, "keywords": ["conduct", "police", "cid"] },
+  "DL_RENEWAL": { "name": "NTSA DL Renewal (3 Years)", "price": 750, "keywords": ["dl", "driving", "ntsa"] },
+  "BUSINESS_SEARCH": { "name": "Business Name Search", "price": 250, "keywords": ["business", "name", "brs"] },
+  "HELB_APP": { "name": "HELB Loan Application", "price": 200, "keywords": ["helb", "loan", "student"] },
+  "KRA_PIN": { "name": "KRA PIN Registration", "price": 150, "keywords": ["pin", "new pin"] },
+  "PASSPORT_APP": { "name": "Passport Application", "price": 5050, "keywords": ["passport", "immigration"] },
+  "LOGBOOK_TRANSFER": { "name": "NTSA Logbook Transfer", "price": 3550, "keywords": ["logbook", "transfer", "car"] },
+  "ID_REPLACEMENT": { "name": "ID Card Replacement", "price": 1200, "keywords": ["id", "replacement", "lost id"] },
+  "TAX_COMPLIANCE": { "name": "Tax Compliance Certificate", "price": 150, "keywords": ["compliance", "tcc", "tax certificate"] },
+  "BIRTH_CERT": { "name": "Birth Certificate Application", "price": 350, "keywords": ["birth", "certificate"] },
+  "TSC_APP": { "name": "TSC Number Application", "price": 1300, "keywords": ["tsc", "teacher"] },
+  "NHIF_SHA": { "name": "NHIF to SHA Migration", "price": 100, "keywords": ["migration", "nhif to sha"] },
+  "CV_PRO": { "name": "Professional CV Generation", "price": 200, "keywords": ["cv", "resume", "job"] }
 };
+const serviceKeys = Object.keys(services);
 
-const userSessions = new Map();
+// Simple in-memory state for users (resets on server restart)
+const userStates = {}; 
 
-bot.start((ctx) => {
-  userSessions.set(ctx.from.id, { state: UserState.IDLE });
-  ctx.reply(`🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`);
-});
-
-bot.command("menu", (ctx) => {
-  userSessions.set(ctx.from.id, { state: UserState.IDLE });
-  ctx.reply(`🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`);
-});
-
-bot.on("message", async (ctx) => {
-  const userId = ctx.from.id;
-  const text = ctx.message.text ? ctx.message.text.trim() : "";
-
-  if (!userSessions.has(userId)) {
-    userSessions.set(userId, { state: UserState.IDLE });
-  }
-
-  const session = userSessions.get(userId);
-
-  if (text.toLowerCase() === "menu") {
-    session.state = UserState.IDLE;
-    return ctx.reply(`🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`);
-  }
-
-  if (session.state === UserState.IDLE && text === "1") {
-    session.state = UserState.AWAITING_KRA_CREDENTIALS;
-    return ctx.reply("✅ Umechagua KRA NIL Returns (KES 50).\n\nTafadhali tuma KRA PIN na Password yako, mfano: A123456789Z password123.");
-  } else if (session.state === UserState.AWAITING_KRA_CREDENTIALS) {
-    const pinRegex = /[A-Z]\d{9}[A-Z]/i;
-    const pinMatch = text.match(pinRegex);
-
-    if (!pinMatch) {
-      return ctx.reply("❌ KRA PIN haijapatikana. Jaribu tena (mfano: A123456789Z password).");
-    }
-
-    const kraPin = pinMatch[0].toUpperCase();
-    let password = text.replace(pinMatch[0], "").replace(/password|pasword|pin/gi, "").trim();
-
-    if (!password) {
-      return ctx.reply("❌ Tafadhali weka Password yako baada ya PIN.");
-    }
-
-    session.state = UserState.PROCESSING;
-    ctx.reply(`Nafanya KRA NIL Return kwa PIN: ${kraPin}... Subiri kidogo.`);
-
-    try {
-      const result = await performKraNilReturn(kraPin, password);
-      ctx.reply(`✅ Imekamilika! Risiti yako: ${result.receiptUrl}`);
-      session.state = UserState.IDLE;
-    } catch (error) {
-      console.error("Automation Error:", error);
-      ctx.reply(`❌ Imeshindwa: ${error.message}`);
-      session.state = UserState.AWAITING_KRA_CREDENTIALS;
-    }
-  }
-});
-
-/**
- * Engineered Interaction Helper:
- * Specifically designed for legacy ASP.NET portals like iTax.
- * Handles dynamic DOM injection, overlays, and event listener readiness.
- */
-async function engineeredClick(page, selector, timeout = 30000) {
+async function sendMessage(platform, to, text) {
   try {
-    // 1. Wait for element to exist in DOM (not necessarily visible yet)
-    await page.waitForSelector(selector, { state: 'attached', timeout });
-
-    // 2. Wait for network to settle (ensures JS event listeners are attached)
-    await new Promise(r => setTimeout(r, 1500));
-
-    // 3. Dismiss common blocking overlays (e.g., loading spinners, announcements)
-    await page.evaluate(() => {
-      const blockers = document.querySelectorAll('.modal-backdrop, #loading, .overlay, .close, .btn-close');
-      blockers.forEach(b => {
-        if (b.style) b.style.display = 'none';
-        if (b.click) b.click();
-      });
-    }).catch(() => {});
-
-    // 4. Scroll into view and ensure visibility
-    await page.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (el) {
-        el.scrollIntoView({ behavior: 'instant', block: 'center' });
-        // Force visibility if hidden by legacy CSS
-        el.style.visibility = 'visible';
-        el.style.display = 'block';
-      }
-    }, selector);
-
-    // 5. Wait for element to be truly visible and interactable
-    await page.waitForSelector(selector, { visible: true, timeout: 5000 });
-
-    // 6. Attempt Native Click
-    try {
-      await page.click(selector);
-      return;
-    } catch (e) {
-      console.log(`[DEBUG] Native click failed for ${selector}: ${e.message}. Falling back to JS injection.`);
+    if (platform === "whatsapp") {
+      await axios.post(`https://graph.facebook.com/v17.0/${PHONE_ID}/messages`, {
+        messaging_product: "whatsapp", to: to, type: "text", text: { body: text }
+      }, { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } } );
+    } else if (platform === "telegram") {
+      await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, { chat_id: to, text: text, parse_mode: "Markdown" } );
     }
-
-    // 7. Fallback: Direct JavaScript Execution (Bypasses "not clickable" errors)
-    // The iTax 'Continue' button uses `href="javascript:CheckPIN();"`
-    const jsExecuted = await page.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (el) {
-        // If it's a javascript href, execute it directly
-        if (el.tagName === 'A' && el.href && el.href.startsWith('javascript:')) {
-          const script = el.href.replace('javascript:', '');
-          eval(script);
-          return true;
-        }
-        // Otherwise, force a DOM click event
-        el.click();
-        return true;
-      }
-      return false;
-    }, selector);
-
-    if (!jsExecuted) throw new Error(`Element ${selector} not found for JS execution.`);
-
-  } catch (err) {
-    throw new Error(`Engineered click failed on ${selector}: ${err.message}`);
+  } catch (e) {
+    console.error("Error sending message:", e.message);
+    if (e.response) {
+      console.error("Error response data:", e.response.data);
+    }
   }
 }
 
-async function solveKraCaptcha(page) {
-  try {
-    // Wait for the captcha label to appear after the Continue button is clicked
-    await page.waitForSelector('label[for="captchatxt"]', { visible: true, timeout: 15000 });
-    
-    const captchaText = await page.evaluate(() => {
-      const label = document.querySelector('label[for="captchatxt"]');
-      return label ? label.innerText.trim() : null;
-    });
-    
-    if (!captchaText) throw new Error("Captcha label not found.");
-    
-    const match = captchaText.match(/(\d+)\s*([\+\-])\s*(\d+)/);
-    if (!match) throw new Error(`Could not parse captcha: ${captchaText}`);
-    
-    const num1 = parseInt(match[1]);
-    const op = match[2];
-    const num2 = parseInt(match[3]);
-    return (op === '+' ? num1 + num2 : num1 - num2).toString();
-  } catch (err) {
-    throw new Error(`Captcha solving failed: ${err.message}`);
+function generateMenuText() {
+  if (serviceKeys.length === 0) {
+    return "🏛️ *E-cyber Assistant Menu*\n\nSamahani, hakuna huduma zilizopatikana kwa sasa. Tafadhali jaribu tena baadaye.";
   }
-}
-
-async function performKraNilReturn(pin, password) {
-  const executablePath = await getExecutablePath();
   
-  // Launch with stealth and optimized arguments
-  const browser = await puppeteer.launch({ 
-    headless: "new", 
-    args: [
-      '--no-sandbox', 
-      '--disable-setuid-sandbox', 
-      '--disable-dev-shm-usage', 
-      '--disable-blink-features=AutomationControlled', // Additional stealth
-      '--window-size=1920,1080' // Standard desktop resolution
-    ],
-    executablePath 
+  let menu = "🏛️ *E-cyber Assistant Menu*\n\nChagua huduma kwa kuandika namba:\n";
+  serviceKeys.forEach((key, index) => {
+    menu += `${index + 1}. ${services[key].name}\n`;
   });
+  menu += "\nAndika namba ya huduma unayotaka!";
+  return menu;
+}
 
+// Function to solve simple math captchas
+function solveCaptcha(captchaText) {
   try {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
-    
-    // Set a realistic User-Agent
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    const parts = captchaText.match(/(\d+)\s*([+\-*])\s*(\d+)/);
+    if (parts && parts.length === 4) {
+      const num1 = parseInt(parts[1]);
+      const operator = parts[2];
+      const num2 = parseInt(parts[3]);
 
-    console.log("[DEBUG] Navigating to iTax...");
-    // Use domcontentloaded to speed up initial load, we'll wait for specific elements later
-    await page.goto("https://itax.kra.go.ke/KRA-Portal/", { waitUntil: "domcontentloaded", timeout: 60000 });
-
-    // Step 1: PIN Input
-    console.log("[DEBUG] Waiting for PIN input...");
-    await page.waitForSelector("#logid", { visible: true, timeout: 20000 });
-    // Simulate human typing speed
-    await page.type("#logid", pin, { delay: 150 });
-
-    // Step 2: The 'Continue' Button
-    console.log("[DEBUG] Clicking Continue...");
-    // The exact selector based on DOM analysis
-    const continueButton = "a.btn[href*='CheckPIN']"; 
-    await engineeredClick(page, continueButton);
-
-    // Step 3: Wait for Password Field (This indicates the Continue action succeeded)
-    console.log("[DEBUG] Waiting for Password field...");
-    await page.waitForSelector("input[type='password']", { visible: true, timeout: 20000 });
-    await page.type("input[type='password']", password, { delay: 100 });
-
-    // Step 4: Captcha
-    console.log("[DEBUG] Solving Captcha...");
-    const captchaAnswer = await solveKraCaptcha(page);
-    await page.type("#captchatxt", captchaAnswer, { delay: 100 });
-
-    // Step 5: Login
-    console.log("[DEBUG] Clicking Login...");
-    const loginButton = "#loginButton, a[href*='submitLogin']";
-    await engineeredClick(page, loginButton);
-
-    // Wait for navigation after login to confirm success
-    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => console.log("[DEBUG] Navigation timeout after login, proceeding anyway..."));
-
-    // Final result placeholder
-    return { receiptUrl: `https://ecyber.com/receipts/KRA_NIL_${Date.now()}` };
-  } catch (err) {
-    // Capture screenshot on failure for debugging
-    const screenshotPath = path.join(__dirname, `error_${Date.now()}.png`);
-    await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
-    console.error(`[DEBUG] Saved error screenshot to ${screenshotPath}`);
-    
-    throw new Error(`Automation error: ${err.message}`);
-  } finally {
-    await browser.close();
+      switch (operator) {
+        case "+": return num1 + num2;
+        case "-": return num1 - num2;
+        case "*": return num1 * num2;
+        default: return null;
+      }
+    }
+    return null;
+  } catch (e) {
+    console.error("Error solving captcha:", e);
+    return null;
   }
 }
 
-bot.launch();
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+// Function to dynamically find Chrome executable
+function findChromeExecutable() {
+  const cachePath = path.join(__dirname, ".cache", "puppeteer");
+  console.log(`Searching for Chrome executable in: ${cachePath}`);
+
+  // Use glob to find the chrome executable, resilient to version changes
+  const chromePaths = globSync(`${cachePath}/**/chrome-linux64/chrome`);
+  
+  if (chromePaths.length > 0) {
+    console.log(`Found Chrome executable at: ${chromePaths[0]}`);
+    return chromePaths[0];
+  }
+  console.log("Chrome executable not found using glob.");
+  return null;
+}
+
+// KRA NIL Return automation function
+async function performKRA_NIL_Return(kraPin, kraPassword) {
+  let browser;
+  try {
+    const executablePath = findChromeExecutable();
+    if (!executablePath) {
+      throw new Error("Chrome executable not found. Please ensure Puppeteer is installed correctly.");
+    }
+    
+    console.log(`Launching browser with executablePath: ${executablePath}`);
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: executablePath,
+    });
+    const page = await browser.newPage();
+    await page.goto("https://itax.kra.go.ke/KRA-Portal/");
+
+    // Wait for the PIN input field to be visible and clickable
+    await page.waitForSelector("#logid", { visible: true, timeout: 10000 });
+    await page.type("#logid", kraPin);
+
+    // Click Continue and wait for navigation
+    await page.click("#loginButton"); 
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 });
+
+    // Handle potential pop-up (e.g., Taxpayer Notice) if it appears
+    const popupCloseButton = await page.$("button.close"); 
+    if (popupCloseButton) {
+      console.log("Closing pop-up...");
+      await popupCloseButton.click();
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Give more time for the popup to close
+    }
+
+    // Wait for the password input field to be visible and clickable
+    await page.waitForSelector("#password", { visible: true, timeout: 10000 });
+    await page.type("#password", kraPassword);
+
+    // Solve Captcha
+    await page.waitForSelector("label[for=\'captcahText\']", { visible: true, timeout: 10000 });
+    const captchaTextElement = await page.$("label[for=\'captcahText\']"); 
+    let captchaText = "";
+    if (captchaTextElement) {
+      captchaText = await page.evaluate(el => el.innerText, captchaTextElement);
+    } else {
+      const potentialCaptchaText = await page.$eval("div.captcha-text, span.captcha-text", el => el.innerText).catch(() => null);
+      if (potentialCaptchaText) captchaText = potentialCaptchaText;
+    }
+
+    const captchaAnswer = solveCaptcha(captchaText);
+
+    if (captchaAnswer !== null) {
+      await page.waitForSelector("#captcahText", { visible: true, timeout: 10000 });
+      await page.type("#captcahText", String(captchaAnswer)); 
+    } else {
+      throw new Error("Failed to solve captcha. Captcha text not found or unparseable.");
+    }
+
+    // Click Login and wait for navigation
+    await page.click("#loginButton"); 
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 });
+
+    // Check for successful login
+    const isLoggedIn = await page.$("#dashboardMenu") !== null; 
+    if (!isLoggedIn) {
+      // Capture screenshot on login failure for debugging
+      await page.screenshot({ path: path.join(__dirname, 'login_failure.png') });
+      throw new Error("Login failed. Check PIN/Password or Captcha. Screenshot saved as login_failure.png");
+    }
+
+    // Navigate to \"File Nil Return\"
+    await page.waitForSelector("a[href*=\'fileNilReturn\']", { visible: true, timeout: 10000 });
+    await page.click("a[href*=\'fileNilReturn\']"); 
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 });
+
+    // Select tax obligation, tax period, etc. and submit
+    await page.waitForSelector("#taxObligation", { visible: true, timeout: 10000 });
+    await page.select("#taxObligation", "ITR"); 
+    await page.waitForSelector("#taxPeriod", { visible: true, timeout: 10000 });
+    await page.select("#taxPeriod", "2023"); 
+    await page.waitForSelector("#submitNilReturn", { visible: true, timeout: 10000 });
+    await page.click("#submitNilReturn"); 
+    await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 15000 });
+
+    const successMessage = await page.evaluate(() => document.body.innerText.includes("Return Submitted Successfully"));
+    if (successMessage) {
+      return { success: true, message: "KRA NIL Return filed successfully!" };
+    } else {
+      // Capture screenshot on filing failure for debugging
+      await page.screenshot({ path: path.join(__dirname, 'filing_failure.png') });
+      return { success: false, message: "Failed to file KRA NIL Return. Please check details. Screenshot saved as filing_failure.png" };
+    }
+
+  } catch (error) {
+    console.error("KRA NIL Return automation failed:", error);
+    return { success: false, message: `Automation failed: ${error.message}` };
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+// Service execution logic
+async function executeService(serviceId, details, platform, userId) {
+  const service = services[serviceId];
+  let resultMessage = "";
+  const customerInput = details.customerInput || "";
+
+  switch (serviceId) {
+    case "KRA_NIL":
+      if (details.kraPin && details.kraPassword) {
+        await sendMessage(platform, userId, `Nafanya KRA NIL Return kwa PIN: ${details.kraPin}... Tafadhali subiri kidogo.`);
+        const automationResult = await performKRA_NIL_Return(details.kraPin, details.kraPassword);
+        if (automationResult.success) {
+          resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\n${automationResult.message} Risiti yako inapatikana hapa: [https://ecyber.com/receipts/KRA_NIL_${userId}]`;
+        } else {
+          resultMessage = `❌ Samahani, huduma ya *${service.name}* imeshindwa. ${automationResult.message}`; 
+        }
+      } else {
+        resultMessage = `Samahani, kwa huduma ya *${service.name}*, nahitaji KRA PIN na Neno Siri (Password) yako.`;
+      }
+      break;
+    case "SHA_REG":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUsajili wako wa SHA umekamilika. Namba yako ya usajili ni: *SHA-${Math.floor(Math.random() * 1000000)}*.`;
+      break;
+    case "GOOD_CONDUCT":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nHati yako ya tabia njema (Good Conduct) imetolewa. Unaweza kuipakua hapa: [https://ecyber.com/documents/good_conduct_${userId}]`;
+      break;
+    case "DL_RENEWAL":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nLeseni yako ya udereva imefanyiwa upya kwa miaka 3. Unaweza kupakua leseni mpya hapa: [https://ecyber.com/documents/dl_renewal_${userId}]`;
+      break;
+    case "BUSINESS_SEARCH":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUtafutaji wa jina la biashara umekamilika. Matokeo yametumwa kwako kupitia SMS/Email.`;
+      break;
+    case "HELB_APP":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya mkopo wa HELB yamewasilishwa. Utapokea ujumbe wa uthibitisho kutoka HELB hivi karibuni.`;
+      break;
+    case "KRA_PIN":
+      const generatedPin = `A${Math.floor(Math.random() * 900000000) + 100000000}Z`; 
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nKRA PIN yako mpya ni: *${generatedPin}*. Unaweza kuipakua hapa: [https://ecyber.com/documents/kra_pin_${userId}]`;
+      break;
+    case "PASSPORT_APP":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya Pasipoti yamewasilishwa. Utapokea ujumbe wa tarehe ya kuchukua picha na alama za vidole.`;
+      break;
+    case "LOGBOOK_TRANSFER":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUhamishaji wa umiliki wa Logbook umekamilika. Hati mpya ya umiliki inapatikana hapa: [https://ecyber.com/documents/logbook_${userId}]`;
+      break;
+    case "ID_REPLACEMENT":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya kubadilisha kitambulisho yamewasilishwa. Utapokea ujumbe wa tarehe ya kukichukua.`;
+      break;
+    case "TAX_COMPLIANCE":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nHati yako ya Uzingatiaji Kodi (TCC) imetolewa. Unaweza kuipakua hapa: [https://ecyber.com/documents/tcc_${userId}]`;
+      break;
+    case "BIRTH_CERT":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nMaombi yako ya cheti cha kuzaliwa yamewasilishwa. Utapokea ujumbe wa tarehe ya kukichukua.`;
+      break;
+    case "TSC_APP":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nNamba yako ya TSC imetolewa. Unaweza kuipata hapa: [https://ecyber.com/documents/tsc_${userId}]`;
+      break;
+    case "NHIF_SHA":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nUhamishaji wako kutoka NHIF kwenda SHA umekamilika.`;
+      break;
+    case "CV_PRO":
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nCV yako ya kitaalamu imetengenezwa. Unaweza kuipakua hapa: [https://ecyber.com/documents/cv_${userId}]`;
+      break;
+    default:
+      resultMessage = `✅ Huduma ya *${service.name}* imekamilika kwa mafanikio!\n\nAsante kwa kutumia E-cyber. Tumepokea maelezo yako: \"${customerInput}\".`;
+  }
+
+  await sendMessage(platform, userId, resultMessage);
+}
+
+app.get("/", (req, res) => res.send("E-cyber Smart Assistant is Live! 🚀"));
+
+// WhatsApp Webhook
+app.get("/webhook", (req, res) => {
+  if (req.query["hub.verify_token"] === VERIFY_TOKEN) res.send(req.query["hub.challenge"]);
+  else res.sendStatus(403);
+});
+
+app.post("/webhook", async (req, res) => {
+  const body = req.body;
+  const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  if (message) {
+    const from = message.from;
+    const text = message.text.body.trim().toLowerCase();
+    
+    if (!userStates[from]) {
+      userStates[from] = { state: "START", serviceId: null, details: {} };
+    }
+    
+    let userState = userStates[from];
+
+    if (["menu", "hi", "habari", "/start", "mambo"].includes(text)) {
+      userState.state = "AWAITING_SELECTION";
+      await sendMessage("whatsapp", from, generateMenuText());
+    } 
+    else if (userState.state === "AWAITING_SELECTION" || userState.state === "START") {
+      const selectedIndex = parseInt(text) - 1;
+      if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < serviceKeys.length) {
+        const serviceId = serviceKeys[selectedIndex];
+        const service = services[serviceId];
+        userState.serviceId = serviceId;
+        
+        if (serviceId === "KRA_NIL") {
+          userState.state = "AWAITING_KRA_CREDENTIALS";
+          await sendMessage("whatsapp", from, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma KRA PIN na Neno Siri (Password) yako, mfano: *A123456789Z password123*.`);
+        } else {
+          userState.state = "AWAITING_DETAILS";
+          await sendMessage("whatsapp", from, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma maelezo yako (mfano: Jina Kamili na Namba ya Kitambulisho) ili tuanze kushughulikia.`);
+        }
+      } else {
+        await sendMessage("whatsapp", from, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
+      }
+    } 
+    else if (userState.state === "AWAITING_KRA_CREDENTIALS") {
+      // Improved parsing for KRA PIN and Password
+      const parts = text.split(/\s+/).filter(Boolean); // Split by any whitespace and remove empty strings
+      let kraPin = null;
+      let kraPassword = null;
+
+      // Attempt to find KRA PIN (starts with A, ends with a letter, 10 chars total)
+      // KRA PIN format: A123456789Z (starts with A, 9 digits, ends with a letter)
+      const kraPinRegex = /^[a-zA-Z]\d{9}[a-zA-Z]$/i;
+
+      let pinIndex = -1;
+      for (let i = 0; i < parts.length; i++) {
+        if (kraPinRegex.test(parts[i])) {
+          kraPin = parts[i].toUpperCase();
+          pinIndex = i;
+          break;
+        }
+      }
+
+      if (kraPin && pinIndex !== -1) {
+        // Try to find the password. Look for a word that looks like a password after the PIN.
+        // Or, if "password" keyword is present, take the word after it.
+        let passwordStartIndex = -1;
+        for (let i = pinIndex + 1; i < parts.length; i++) {
+          if (parts[i].toLowerCase() === "password") {
+            passwordStartIndex = i + 1;
+            break;
+          }
+        }
+
+        if (passwordStartIndex !== -1 && passwordStartIndex < parts.length) {
+          kraPassword = parts.slice(passwordStartIndex).join(" ");
+        } else if (pinIndex + 1 < parts.length) {
+          // If no "password" keyword, assume the rest is the password
+          kraPassword = parts.slice(pinIndex + 1).join(" ");
+        }
+      }
+
+      if (kraPin && kraPassword) {
+        userState.details.kraPin = kraPin;
+        userState.details.kraPassword = kraPassword;
+        userState.state = "SERVICE_PROCESSING";
+        await executeService(userState.serviceId, userState.details, "whatsapp", from);
+        userState.state = "START"; 
+        userState.serviceId = null;
+      } else {
+        await sendMessage("whatsapp", from, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi. Mfano: *A123456789Z password123*.");
+        // Keep user in AWAITING_KRA_CREDENTIALS state to retry
+      }
+    }
+    else if (userState.state === "AWAITING_DETAILS") {
+      userState.details.customerInput = text; 
+      userState.state = "SERVICE_PROCESSING";
+      await executeService(userState.serviceId, userState.details, "whatsapp", from);
+      userState.state = "START";
+      userState.serviceId = null;
+    } 
+    else {
+      await sendMessage("whatsapp", from, "Karibu E-cyber! Andika *Menu* kuona huduma zetu.");
+      userState.state = "AWAITING_SELECTION";
+    }
+    
+    userStates[from] = userState;
+  }
+  res.sendStatus(200);
+});
+
+// Telegram Webhook
+app.post("/telegram-webhook", async (req, res) => {
+  const { message } = req.body;
+  if (message && message.text) {
+    const chatId = message.chat.id;
+    const text = message.text.trim().toLowerCase();
+
+    if (!userStates[chatId]) {
+      userStates[chatId] = { state: "START", serviceId: null, details: {} };
+    }
+    
+    let userState = userStates[chatId];
+
+    if (["/start", "menu", "hi", "habari"].includes(text)) {
+      userState.state = "AWAITING_SELECTION";
+      await sendMessage("telegram", chatId, generateMenuText());
+    } else if (userState.state === "AWAITING_SELECTION" || userState.state === "START") {
+      const selectedIndex = parseInt(text) - 1;
+      if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < serviceKeys.length) {
+        const serviceId = serviceKeys[selectedIndex];
+        const service = services[serviceId];
+        userState.serviceId = serviceId;
+        
+        if (serviceId === "KRA_NIL") {
+          userState.state = "AWAITING_KRA_CREDENTIALS";
+          await sendMessage("telegram", chatId, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma KRA PIN na Neno Siri (Password) yako, mfano: *A123456789Z password123*.`);
+        } else {
+          userState.state = "AWAITING_DETAILS";
+          await sendMessage("telegram", chatId, `✅ Umechagua *${service.name}* (KES ${service.price}).\n\nTafadhali tuma maelezo yako (mfano: Jina Kamili na Namba ya Kitambulisho) ili tuanze kushughulikia.`);
+        }
+      } else {
+        await sendMessage("telegram", chatId, "Samahani, sijaelewa namba hiyo. Tafadhali chagua namba kutoka kwenye orodha au andika *Menu*.");
+      }
+    } else if (userState.state === "AWAITING_KRA_CREDENTIALS") {
+      // Improved parsing for KRA PIN and Password
+      const parts = text.split(/\s+/).filter(Boolean); // Split by any whitespace and remove empty strings
+      let kraPin = null;
+      let kraPassword = null;
+
+      // Attempt to find KRA PIN (starts with A, ends with a letter, 10 chars total)
+      // KRA PIN format: A123456789Z (starts with A, 9 digits, ends with a letter)
+      const kraPinRegex = /^[a-zA-Z]\d{9}[a-zA-Z]$/i;
+
+      let pinIndex = -1;
+      for (let i = 0; i < parts.length; i++) {
+        if (kraPinRegex.test(parts[i])) {
+          kraPin = parts[i].toUpperCase();
+          pinIndex = i;
+          break;
+        }
+      }
+
+      if (kraPin && pinIndex !== -1) {
+        // Try to find the password. Look for a word that looks like a password after the PIN.
+        // Or, if "password" keyword is present, take the word after it.
+        let passwordStartIndex = -1;
+        for (let i = pinIndex + 1; i < parts.length; i++) {
+          if (parts[i].toLowerCase() === "password") {
+            passwordStartIndex = i + 1;
+            break;
+          }
+        }
+
+        if (passwordStartIndex !== -1 && passwordStartIndex < parts.length) {
+          kraPassword = parts.slice(passwordStartIndex).join(" ");
+        } else if (pinIndex + 1 < parts.length) {
+          // If no "password" keyword, assume the rest is the password
+          kraPassword = parts.slice(pinIndex + 1).join(" ");
+        }
+      }
+
+      if (kraPin && kraPassword) {
+        userState.details.kraPin = kraPin;
+        userState.details.kraPassword = kraPassword;
+        userState.state = "SERVICE_PROCESSING";
+        await executeService(userState.serviceId, userState.details, "telegram", chatId);
+        userState.state = "START";
+        userState.serviceId = null;
+      } else {
+        await sendMessage("telegram", chatId, "Samahani, tafadhali tuma KRA PIN na Neno Siri (Password) yako kwa usahihi. Mfano: *A123456789Z password123*.");
+        // Keep user in AWAITING_KRA_CREDENTIALS state to retry
+      }
+    }
+    else if (userState.state === "AWAITING_DETAILS") {
+      userState.details.customerInput = text; 
+      userState.state = "SERVICE_PROCESSING";
+      await executeService(userState.serviceId, userState.details, "telegram", chatId);
+      userState.state = "START";
+      userState.serviceId = null;
+    } 
+    else {
+      await sendMessage("telegram", chatId, "Karibu E-cyber! Andika *Menu* kuona huduma zetu.");
+      userState.state = "AWAITING_SELECTION";
+    }
+    
+    userStates[chatId] = userState;
+  }
+  res.sendStatus(200);
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
