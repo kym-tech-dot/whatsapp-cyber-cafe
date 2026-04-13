@@ -1,21 +1,23 @@
 {
   "name": "e-cyber-assistant",
   "version": "1.0.0",
-  "description": "Telegram Bot for KRA NIL Returns and other services",
+  "description": "WhatsApp and Telegram bot for E-cyber services with KRA automation",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "postinstall": "npx puppeteer install"
+    "build": "npm install && npx puppeteer browsers install chrome"
   },
   "dependencies": {
-    "telegraf": "^4.16.3",
-    "puppeteer": "24.40.0",
-    "puppeteer-extra": "3.3.6",
-    "puppeteer-extra-plugin-stealth": "2.11.0",
-    "glob": "^10.0.0",
-    "dotenv": "^16.4.5"
+    "axios": "^1.6.0",
+    "express": "^4.18.2",
+    "puppeteer": "^24.40.0",
+    "puppeteer-extra": "^11.0.0",
+    "puppeteer-extra-plugin-stealth": "^2.11.0",
+    "intasend-node": "^1.1.2",
+    "glob": "^10.4.1"
   },
   "engines": {
     "node": ">=18.0.0"
   }
 }
+
