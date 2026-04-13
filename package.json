@@ -4,11 +4,12 @@
   "description": "A production-grade, scalable Telegram bot that automates KRA iTax NIL returns using Puppeteer.",
   "main": "src/bot.js",
   "scripts": {
-    "start": "node src/bot.js",
-    "dev": "nodemon src/bot.js"
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
+    "express": "^4.19.2",
     "node-telegram-bot-api": "^0.66.0",
     "puppeteer": "^22.12.1",
     "puppeteer-extra": "^3.3.6",
