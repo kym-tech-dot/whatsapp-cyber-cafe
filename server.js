@@ -27,7 +27,13 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'],
+        args: [
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage', 
+            '--single-process',
+            '--window-size=1280,800'
+        ],
         executablePath: null,
     }
 });
@@ -91,18 +97,60 @@ client.on('message', async (msg) => {
             msg.reply(`✅ Imekamilika! Risiti yako: ${result.receiptUrl}`);
             session.state = UserState.IDLE;
         } catch (error) {
+            console.error('Automation Error:', error);
             msg.reply(`❌ Imeshindwa: ${error.message}`);
             session.state = UserState.AWAITING_KRA_CREDENTIALS;
         }
     }
 });
 
-async function smartClick(page, selector) {
-    await page.waitForSelector(selector, { visible: true, timeout: 15000 });
+/**
+ * Force Click Helper:
+ * The KRA portal often has overlays or dynamic IDs that block standard clicks.
+ * This helper tries multiple strategies:
+ * 1. Native Puppeteer Click
+ * 2. JavaScript Click (DOM-level)
+ * 3. Coordinate-based Click (last resort)
+ */
+async function forceClick(page, selector, timeout = 15000) {
     try {
-        await page.click(selector);
-    } catch (e) {
-        await page.evaluate((sel) => document.querySelector(sel)?.click(), selector);
+        await page.waitForSelector(selector, { visible: true, timeout });
+        
+        // Strategy 1: Native Click
+        try {
+            await page.click(selector);
+            return;
+        } catch (e) {
+            console.log(`[DEBUG] Native click failed for ${selector}, trying JS click...`);
+        }
+
+        // Strategy 2: JS Click
+        const clicked = await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            if (el) {
+                el.click();
+                return true;
+            }
+            return false;
+        }, selector);
+        
+        if (clicked) return;
+
+        // Strategy 3: Coordinate Click
+        const rect = await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            if (!el) return null;
+            const { x, y, width, height } = el.getBoundingClientRect();
+            return { x: x + width / 2, y: y + height / 2 };
+        }, selector);
+
+        if (rect) {
+            await page.mouse.click(rect.x, rect.y);
+        } else {
+            throw new Error(`Element ${selector} not found for coordinate click.`);
+        }
+    } catch (err) {
+        throw new Error(`Force click failed on ${selector}: ${err.message}`);
     }
 }
 
@@ -113,23 +161,25 @@ async function performKraNilReturn(pin, password) {
     try {
         const page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
+        
+        console.log('[DEBUG] Navigating to iTax...');
         await page.goto('https://itax.kra.go.ke/KRA-Portal/', { waitUntil: 'networkidle2', timeout: 60000 });
         
+        // Wait for PIN input
         await page.waitForSelector('#logid', { visible: true });
         await page.type('#logid', pin);
         
-        const continueButton = 'button.btn-info, #XX67588383, input[type="button"][value="Continue"]';
-        await smartClick(page, continueButton);
+        // The KRA "Continue" button is notoriously difficult. 
+        // We use a combination of selectors and our forceClick helper.
+        const continueButton = 'button.btn-info, input[type="button"][value="Continue"], #XX67588383';
+        await forceClick(page, continueButton);
         
         // Handle Password Field
-        await page.waitForSelector('input[type="password"]', { visible: true, timeout: 10000 });
+        await page.waitForSelector('input[type="password"]', { visible: true, timeout: 15000 });
         await page.type('input[type="password"]', password);
         
-        /**
-         * Note: The KRA portal requires a 'Security Stamp' (arithmetic captcha).
-         * Automated NIL returns often fail here unless you use a Captcha Solver service.
-         * For now, we are returning a mock success to confirm the browser is working.
-         */
+        // For demonstration/testing, returning success. 
+        // Real-world flow requires handling the arithmetic captcha (Security Stamp).
         return { receiptUrl: `https://ecyber.com/receipts/KRA_NIL_${Date.now()}` };
     } catch (err) {
         throw new Error(`Automation error: ${err.message}`);
