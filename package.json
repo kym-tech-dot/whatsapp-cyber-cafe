@@ -1,7 +1,7 @@
-{
+
   "name": "e-cyber-assistant",
   "version": "1.0.0",
-  "description": "WhatsApp & telrgram Bot for KRA NIL Returns and other services",
+  "description": "WhatsApp Bot for KRA NIL Returns and other services",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -14,3 +14,6 @@
     "glob": "^10.0.0"
   },
   "engines": {
+    "node": ">=18.0.0"
+  }
+}
