@@ -9,7 +9,6 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 /**
  * Senior Engineer Note:
- * Hardcoding executable paths is a recipe for deployment failure.
  * Render's environment is dynamic; we use glob to find the chrome executable.
  */
 async function getExecutablePath() {
@@ -35,16 +34,12 @@ const userSessions = new Map();
 
 bot.start((ctx) => {
   userSessions.set(ctx.from.id, { state: UserState.IDLE });
-  ctx.reply(
-    `🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`
-  );
+  ctx.reply(`🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`);
 });
 
 bot.command("menu", (ctx) => {
   userSessions.set(ctx.from.id, { state: UserState.IDLE });
-  ctx.reply(
-    `🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`
-  );
+  ctx.reply(`🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`);
 });
 
 bot.on("message", async (ctx) => {
@@ -59,31 +54,22 @@ bot.on("message", async (ctx) => {
 
   if (text.toLowerCase() === "menu") {
     session.state = UserState.IDLE;
-    return ctx.reply(
-      `🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`
-    );
+    return ctx.reply(`🏛️ E-cyber Assistant Menu\n\n1. KRA NIL Returns\n\nAndika namba ya huduma!`);
   }
 
   if (session.state === UserState.IDLE && text === "1") {
     session.state = UserState.AWAITING_KRA_CREDENTIALS;
-    return ctx.reply(
-      "✅ Umechagua KRA NIL Returns (KES 50).\n\nTafadhali tuma KRA PIN na Password yako, mfano: A123456789Z password123."
-    );
+    return ctx.reply("✅ Umechagua KRA NIL Returns (KES 50).\n\nTafadhali tuma KRA PIN na Password yako, mfano: A123456789Z password123.");
   } else if (session.state === UserState.AWAITING_KRA_CREDENTIALS) {
     const pinRegex = /[A-Z]\d{9}[A-Z]/i;
     const pinMatch = text.match(pinRegex);
 
     if (!pinMatch) {
-      return ctx.reply(
-        "❌ KRA PIN haijapatikana. Jaribu tena (mfano: A123456789Z password)."
-      );
+      return ctx.reply("❌ KRA PIN haijapatikana. Jaribu tena (mfano: A123456789Z password).");
     }
 
     const kraPin = pinMatch[0].toUpperCase();
-    let password = text
-      .replace(pinMatch[0], "")
-      .replace(/password|pasword|pin/gi, "")
-      .trim();
+    let password = text.replace(pinMatch[0], "").replace(/password|pasword|pin/gi, "").trim();
 
     if (!password) {
       return ctx.reply("❌ Tafadhali weka Password yako baada ya PIN.");
@@ -105,18 +91,36 @@ bot.on("message", async (ctx) => {
 });
 
 /**
- * Force Click Helper:
- * The KRA portal often has overlays or dynamic IDs that block standard clicks.
+ * Robust Interaction Helper:
+ * Handles popups, wait times, and multiple click strategies.
  */
-async function forceClick(page, selector, timeout = 15000) {
+async function smartClick(page, selector, timeout = 20000) {
   try {
+    // 1. Wait for element
     await page.waitForSelector(selector, { visible: true, timeout });
+    
+    // 2. Try closing any blocking popups first
+    await page.evaluate(() => {
+      const closeButtons = document.querySelectorAll('.close, .btn-close, [aria-label="Close"]');
+      closeButtons.forEach(btn => btn.click());
+    }).catch(() => {});
+
+    // 3. Scroll into view
+    await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, selector);
+
+    // 4. Native Click with small delay
+    await new Promise(r => setTimeout(r, 1000));
     try {
       await page.click(selector);
       return;
     } catch (e) {
-      console.log(`[DEBUG] Native click failed for ${selector}, trying JS click...`);
+      console.log(`[DEBUG] Native click failed for ${selector}, trying JS fallback...`);
     }
+
+    // 5. JavaScript DOM Click
     const clicked = await page.evaluate((sel) => {
       const el = document.querySelector(sel);
       if (el) {
@@ -125,50 +129,26 @@ async function forceClick(page, selector, timeout = 15000) {
       }
       return false;
     }, selector);
-    if (clicked) return;
-    const rect = await page.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (!el) return null;
-      const { x, y, width, height } = el.getBoundingClientRect();
-      return { x: x + width / 2, y: y + height / 2 };
-    }, selector);
-    if (rect) {
-      await page.mouse.click(rect.x, rect.y);
-    } else {
-      throw new Error(`Element ${selector} not found for coordinate click.`);
-    }
+    
+    if (!clicked) throw new Error(`Element ${selector} not found for JS click.`);
   } catch (err) {
-    throw new Error(`Force click failed on ${selector}: ${err.message}`);
+    throw new Error(`Smart click failed on ${selector}: ${err.message}`);
   }
 }
 
-/**
- * KRA Captcha Solver:
- * Extracts the math question (e.g., "10 + 5") and solves it.
- */
 async function solveKraCaptcha(page) {
   try {
     const captchaText = await page.evaluate(() => {
       const label = document.querySelector('label[for="captchatxt"]');
       return label ? label.innerText.trim() : null;
     });
-
     if (!captchaText) throw new Error("Captcha label not found.");
-
-    console.log(`[DEBUG] Captcha Text: ${captchaText}`);
-    
-    // Matches expressions like "15 + 5" or "20 - 2"
     const match = captchaText.match(/(\d+)\s*([\+\-])\s*(\d+)/);
     if (!match) throw new Error(`Could not parse captcha: ${captchaText}`);
-
     const num1 = parseInt(match[1]);
     const op = match[2];
     const num2 = parseInt(match[3]);
-
-    const answer = op === '+' ? num1 + num2 : num1 - num2;
-    console.log(`[DEBUG] Captcha Solved: ${num1} ${op} ${num2} = ${answer}`);
-    
-    return answer.toString();
+    return (op === '+' ? num1 + num2 : num1 - num2).toString();
   } catch (err) {
     throw new Error(`Captcha solving failed: ${err.message}`);
   }
@@ -178,48 +158,37 @@ async function performKraNilReturn(pin, password) {
   const executablePath = await getExecutablePath();
   const browser = await puppeteer.launch({ 
     headless: "new", 
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--single-process',
-      '--window-size=1280,800'
-    ], 
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'],
     executablePath 
   });
 
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
+    await page.setViewport({ width: 1366, height: 768 });
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36');
 
     console.log("[DEBUG] Navigating to iTax...");
-    await page.goto("https://itax.kra.go.ke/KRA-Portal/", {
-      waitUntil: "networkidle2",
-      timeout: 60000,
-    });
+    await page.goto("https://itax.kra.go.ke/KRA-Portal/", { waitUntil: "networkidle2", timeout: 60000 });
 
-    // Step 1: Enter PIN
+    // Step 1: PIN
     await page.waitForSelector("#logid", { visible: true });
-    await page.type("#logid", pin);
+    await page.type("#logid", pin, { delay: 100 });
 
-    // Step 2: Click Continue
-    const continueButton = "button.btn-info, input[type=\"button\"][value=\"Continue\"], #XX67588383";
-    await forceClick(page, continueButton);
+    // Step 2: Continue (The tricky part)
+    const continueButton = "button.btn-info, #XX67588383, input[value='Continue']";
+    await smartClick(page, continueButton);
 
-    // Step 3: Handle Password and Captcha
-    await page.waitForSelector("input[type=\"password\"]", { visible: true, timeout: 15000 });
-    await page.type("input[type=\"password\"]", password);
-
-    // Step 4: Solve and Enter Captcha
+    // Step 3: Password & Captcha
+    await page.waitForSelector("input[type='password']", { visible: true, timeout: 15000 });
+    await page.type("input[type='password']", password, { delay: 50 });
     const captchaAnswer = await solveKraCaptcha(page);
-    await page.type("#captchatxt", captchaAnswer);
+    await page.type("#captchatxt", captchaAnswer, { delay: 50 });
 
-    // Step 5: Click Login
-    const loginButton = "#loginButton, button[value=\"Login\"]";
-    await forceClick(page, loginButton);
+    // Step 4: Login
+    const loginButton = "#loginButton, button[value='Login']";
+    await smartClick(page, loginButton);
 
-    // Real-world flow would then proceed to 'Returns' -> 'File Nil Return'
-    // For now, we return a success placeholder.
+    // Final result placeholder
     return { receiptUrl: `https://ecyber.com/receipts/KRA_NIL_${Date.now()}` };
   } catch (err) {
     throw new Error(`Automation error: ${err.message}`);
@@ -229,7 +198,5 @@ async function performKraNilReturn(pin, password) {
 }
 
 bot.launch();
-
-// Enable graceful stop
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
