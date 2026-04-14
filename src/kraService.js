@@ -41,46 +41,47 @@ async function fileNilReturn(kraPin, password) {
 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-    console.log('[STEP] Navigating to KRA portal');
-    await page.goto(KRA_ITAX_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
+    console.log('[STEP] Navigating to KRA portal (Waiting up to 3 mins)');
+    // Increased navigation timeout to 3 minutes
+    await page.goto(KRA_ITAX_URL, { waitUntil: 'domcontentloaded', timeout: 180000 });
 
-    // AGGRESSIVE POP-UP KILLER: Run this every 2 seconds to clear the screen
-    const killPopups = async () => {
-      await page.evaluate(() => {
-        const selectors = ['.modal-backdrop', '.modal', '#closeButton', 'button:contains("Close")', 'a:contains("X")'];
-        selectors.forEach(s => {
-          try {
-            const el = document.querySelector(s);
-            if (el) el.remove();
-          } catch(e) {}
-        });
-        // Force display of login form if hidden
-        const form = document.querySelector('#loginForm');
-        if (form) form.style.display = 'block';
+    // AGGRESSIVE POP-UP KILLER
+    await page.evaluate(() => {
+      const selectors = ['.modal-backdrop', '.modal', '#closeButton', 'button', 'a'];
+      selectors.forEach(s => {
+        try {
+          const elements = document.querySelectorAll(s);
+          elements.forEach(el => {
+            const text = el.innerText.toLowerCase();
+            if (text.includes('close') || text === 'x' || s === '.modal-backdrop') {
+              el.remove();
+            }
+          });
+        } catch(e) {}
       });
-    };
-    await killPopups();
+    });
 
-    console.log('[STEP] Waiting for PIN field...');
-    // PARALLEL SEARCH: Look for both possible PIN field names
+    console.log('[STEP] Waiting for PIN field (3-minute limit)...');
+    // PARALLEL SEARCH with 3-minute timeout (180,000ms)
     const pinField = await Promise.race([
-      page.waitForSelector('input[name="vo.userId"]', { visible: true, timeout: 45000 }).then(() => 'input[name="vo.userId"]'),
-      page.waitForSelector('input[name="vo.username"]', { visible: true, timeout: 45000 }).then(() => 'input[name="vo.username"]')
+      page.waitForSelector('input[name="vo.userId"]', { visible: true, timeout: 180000 }).then(() => 'input[name="vo.userId"]'),
+      page.waitForSelector('input[name="vo.username"]', { visible: true, timeout: 180000 }).then(() => 'input[name="vo.username"]')
     ]);
 
+    console.log(`[INFO] Found PIN field: ${pinField}`);
     await page.type(pinField, kraPin, { delay: 50 });
     await page.click('a[href="javascript:loginContinue()"]');
 
     // Handle "Already Logged In"
     try {
       const conflict = 'a[href="javascript:terminateSession(\'Y\')"]';
-      await page.waitForSelector(conflict, { visible: true, timeout: 8000 });
+      await page.waitForSelector(conflict, { visible: true, timeout: 15000 });
       await page.click(conflict);
     } catch (e) {}
 
     // Password & CAPTCHA
     console.log('[STEP] Waiting for Password & CAPTCHA...');
-    await page.waitForSelector('input[name="vo.password"]', { visible: true, timeout: 30000 });
+    await page.waitForSelector('input[name="vo.password"]', { visible: true, timeout: 60000 });
     
     const captcha = await page.evaluate(() => {
       const label = document.querySelector('label[for="captchatext"]');
@@ -99,23 +100,23 @@ async function fileNilReturn(kraPin, password) {
     await page.click('a[href="javascript:loginUser()"]');
 
     // Dashboard
-    await page.waitForSelector('#headerNav', { visible: true, timeout: 45000 });
+    await page.waitForSelector('#headerNav', { visible: true, timeout: 60000 });
     console.log('[STEP] Login successful!');
 
     // Filing
     await page.click('a[title="Returns"]');
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 2000));
     await page.click('a[title="File Nil Return"]');
 
-    await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true, timeout: 30000 });
+    await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true, timeout: 45000 });
     await page.select('select[name="vo.taxObligation"]', 'Income Tax - Resident Individual');
     await page.click('a[href="javascript:submitNilReturn()"]');
 
     // Final Confirm
-    await page.waitForSelector('a[href="javascript:confirmNilReturn()"]', { visible: true, timeout: 20000 });
+    await page.waitForSelector('a[href="javascript:confirmNilReturn()"]', { visible: true, timeout: 30000 });
     await page.click('a[href="javascript:confirmNilReturn()"]');
     
-    await page.waitForSelector('#acknowledgementNo', { visible: true, timeout: 40000 });
+    await page.waitForSelector('#acknowledgementNo', { visible: true, timeout: 60000 });
     const ackNo = await page.evaluate(() => document.querySelector('#acknowledgementNo').innerText.trim());
 
     return { success: true, acknowledgementNo: ackNo };
@@ -129,3 +130,4 @@ async function fileNilReturn(kraPin, password) {
 }
 
 module.exports = { fileNilReturn };
+
