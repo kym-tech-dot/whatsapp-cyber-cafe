@@ -8,11 +8,27 @@ require('dotenv').config();
 puppeteer.use(StealthPlugin());
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
+
+// 1. START WITH POLLING DISABLED TO PREVENT CONFLICT
+const bot = new TelegramBot(token, { polling: false });
+
+// 2. FORCE KILL OTHER INSTANCES BEFORE STARTING
+async function startBot() {
+  try {
+    console.log('--- KILLING OLD BOT INSTANCES ---');
+    await bot.deleteWebHook(); // Clear any old webhooks
+    await bot.getUpdates({ offset: -1 }); // Clear old messages
+    
+    console.log('--- STARTING NEW BOT INSTANCE ---');
+    bot.startPolling(); // Now start fresh
+  } catch (e) {
+    console.error('Error during startup:', e.message);
+  }
+}
+
+startBot();
 
 const userState = {};
-
-console.log('--- E-Cyber Assistant V13 (Industrial) is Starting ---');
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -53,18 +69,16 @@ bot.on('message', async (msg) => {
       const page = await browser.newPage();
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-      // 1. Navigate to KRA
       await page.goto('https://itax.kra.go.ke/KRA-Portal/', { waitUntil: 'networkidle2', timeout: 180000 } );
 
-      // 2. Enter PIN
+      // PIN
       await page.waitForSelector('input#logid', { visible: true, timeout: 60000 });
       await page.type('input#logid', state.pin, { delay: 100 });
       await page.click('a[href="javascript:loginContinue()"]');
 
-      // 3. Wait for Password & CAPTCHA
+      // Password & CAPTCHA
       await page.waitForSelector('input[type="password"]', { visible: true, timeout: 60000 });
       
-      // 4. Solve CAPTCHA
       const captcha = await page.evaluate(() => {
         const label = Array.from(document.querySelectorAll('label')).find(l => l.innerText.includes('+') || l.innerText.includes('-'));
         if (!label) return null;
@@ -72,14 +86,13 @@ bot.on('message', async (msg) => {
         return match ? eval(`${match[1]}${match[2]}${match[3]}`) : null;
       });
 
-      if (!captcha) throw new Error("KRA Portal is slow - CAPTCHA not found. Please try again.");
+      if (!captcha) throw new Error("KRA Portal is slow - CAPTCHA not found.");
       await page.type('input#captcahText', captcha.toString());
 
-      // 5. HUMAN-LIKE PASSWORD INJECTION (Bypasses Virtual Keyboard)
+      // HUMAN-LIKE PASSWORD INJECTION
       await page.evaluate((pass) => {
         const passField = document.querySelector('input[type="password"]');
         passField.value = pass;
-        // Trigger KRA's internal validation so the Login button works
         passField.dispatchEvent(new Event('input', { bubbles: true }));
         passField.dispatchEvent(new Event('blur', { bubbles: true }));
       }, state.password);
@@ -87,22 +100,19 @@ bot.on('message', async (msg) => {
       await new Promise(r => setTimeout(r, 1000));
       await page.click('a#loginButton');
 
-      // 6. Dashboard & Filing
+      // Dashboard & Filing
       await page.waitForSelector('#headerNav', { visible: true, timeout: 90000 });
       await page.click('a[title="Returns"]');
       await new Promise(r => setTimeout(r, 2000));
       await page.click('a[title="File Nil Return"]');
 
-      // 7. Form Selection
       await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true });
       await page.select('select[name="vo.taxObligation"]', 'Income Tax - Resident Individual');
       await page.click('a[href="javascript:submitNilReturn()"]');
 
-      // 8. Final Confirm
       await page.waitForSelector('a[href="javascript:confirmNilReturn()"]', { visible: true });
       await page.click('a[href="javascript:confirmNilReturn()"]');
       
-      // 9. Get Acknowledgement
       const ackNo = await page.waitForSelector('#acknowledgementNo', { visible: true, timeout: 60000 });
       const ackText = await page.evaluate(el => el.innerText, ackNo);
 
@@ -114,5 +124,12 @@ bot.on('message', async (msg) => {
       if (browser) await browser.close();
       delete userState[chatId];
     }
+  }
+});
+
+bot.on('polling_error', (err) => {
+  if (err.message.includes('409 Conflict')) {
+    console.log('--- CONFLICT DETECTED: RESTARTING BOT ---');
+    process.exit(1); // Force Render to restart the container
   }
 });
