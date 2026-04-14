@@ -8,32 +8,40 @@ require('dotenv').config();
 puppeteer.use(StealthPlugin());
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
+
+// FORCE TAKEOVER: This is the most important line. 
+// It tells Telegram to delete any old webhooks and reset the connection.
+const bot = new TelegramBot(token, { 
+  polling: { 
+    autoStart: true,
+    params: { timeout: 10 } 
+  } 
+});
 
 const userState = {};
-const processedMessages = new Set(); // TRACKER: Prevents duplicate messages
+const processedMessages = new Set();
 
-console.log('--- E-Cyber Assistant V11 (Bulletproof) is Starting ---');
+console.log('--- E-Cyber Assistant V12 (Kill Switch) is Starting ---');
+
+// Clear any old commands or states on startup
+bot.getUpdates({ offset: -1 }); 
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
   const messageId = msg.message_id;
 
-  // 1. IGNORE DUPLICATES: If we already saw this message ID, stop.
+  if (!text) return;
   if (processedMessages.has(messageId)) return;
   processedMessages.add(messageId);
   
-  // Keep the set small (last 100 messages)
-  if (processedMessages.size > 100) {
-    const firstItem = processedMessages.values().next().value;
-    processedMessages.delete(firstItem);
-  }
+  if (processedMessages.size > 50) processedMessages.clear();
 
-  // 2. HANDLE COMMANDS
+  console.log(`[INCOMING] Chat: ${chatId}, Text: ${text}`);
+
   if (text === '/start') {
     delete userState[chatId];
-    return bot.sendMessage(chatId, "Welcome to E-Cyber Assistant! 🚀\n\nUse /nilreturn to start.");
+    return bot.sendMessage(chatId, "Welcome! 🚀 Use /nilreturn to start.");
   }
 
   if (text === '/nilreturn') {
@@ -41,13 +49,13 @@ bot.on('message', async (msg) => {
     return bot.sendMessage(chatId, "Please provide your KRA PIN:");
   }
 
-  // 3. HANDLE STEPS
-  if (!userState[chatId]) return;
   const state = userState[chatId];
+  if (!state) return;
 
   if (state.step === 'awaiting_pin') {
     state.pin = text.toUpperCase().trim();
     state.step = 'awaiting_password';
+    console.log(`[STATE] PIN Received: ${state.pin}. Moving to Password.`);
     return bot.sendMessage(chatId, "Please provide your KRA Password:");
   } 
   
