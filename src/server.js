@@ -1,61 +1,87 @@
 'use strict';
-const TelegramBot = require('node-telegram-bot-api');
-const kraService = require('./kraService');
-require('dotenv').config();
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
-const token = process.env.TELEGRAM_BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
-const userState = {};
+async function fileNilReturn(kraPin, password) {
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-console.log('--- E-Cyber Assistant V18 (Final) is Starting ---');
+    // 1. Navigate with longer timeout
+    console.log('[V19] Navigating to KRA...');
+    await page.goto('https://itax.kra.go.ke/KRA-Portal/', { waitUntil: 'networkidle2', timeout: 180000 } );
 
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
-  if (!text) return;
+    // 2. Handle Pop-ups (Notice/Alerts)
+    await page.evaluate(() => {
+      const closeButtons = [...document.querySelectorAll('button, a, span')].filter(el => 
+        el.innerText.toLowerCase().includes('close') || el.innerText === 'X'
+      );
+      closeButtons.forEach(btn => btn.click());
+    });
 
-  // 1. Reset if user sends /start
-  if (text === '/start') {
-    delete userState[chatId];
-    return bot.sendMessage(chatId, "Welcome! 🚀 (V18 ACTIVE)\n\nUse /nilreturn to start.");
-  }
-
-  // 2. Start the process
-  if (text === '/nilreturn') {
-    userState[chatId] = { step: 'awaiting_pin' };
-    return bot.sendMessage(chatId, "Please provide your KRA PIN:");
-  }
-
-  // 3. Handle the steps
-  const state = userState[chatId];
-  if (!state) return;
-
-  if (state.step === 'awaiting_pin') {
-    state.pin = text.toUpperCase().trim();
-    state.step = 'awaiting_password';
-    console.log(`[V18] PIN Received: ${state.pin}`);
-    return bot.sendMessage(chatId, "Please provide your KRA Password:");
-  } 
-  
-  if (state.step === 'awaiting_password') {
-    state.password = text.trim();
-    state.step = 'processing';
-    console.log(`[V18] Password Received. Starting filing...`);
+    // 3. Enter PIN
+    console.log('[V19] Entering PIN...');
+    await page.waitForSelector('input#logid', { visible: true, timeout: 60000 });
+    await page.type('input#logid', kraPin, { delay: 100 });
     
-    bot.sendMessage(chatId, "🚀 V18: Starting KRA NIL return... (Wait up to 3 mins)");
+    // Try multiple ways to click Continue
+    const continueBtn = await page.waitForSelector('a[href="javascript:loginContinue()"], a#continueBtn', { visible: true, timeout: 30000 });
+    await continueBtn.click();
+
+    // 4. Wait for Password & CAPTCHA
+    console.log('[V19] Waiting for Password/CAPTCHA...');
+    await page.waitForSelector('input[type="password"]', { visible: true, timeout: 60000 });
     
-    try {
-      const result = await kraService.fileNilReturn(state.pin, state.password);
-      if (result.success) {
-        bot.sendMessage(chatId, `✅ SUCCESS! Ack No: ${result.acknowledgementNo}`);
-      } else {
-        bot.sendMessage(chatId, `❌ FAILED: ${result.error}`);
-      }
-    } catch (err) {
-      bot.sendMessage(chatId, `❌ ERROR: ${err.message}`);
-    } finally {
-      delete userState[chatId];
-    }
+    const captcha = await page.evaluate(() => {
+      const label = Array.from(document.querySelectorAll('label')).find(l => l.innerText.includes('+') || l.innerText.includes('-'));
+      if (!label) return null;
+      const match = label.innerText.match(/(\d+)\s*([\+\-])\s*(\d+)/);
+      return match ? eval(`${match[1]}${match[2]}${match[3]}`) : null;
+    });
+    
+    if (!captcha) throw new Error("KRA Portal slow - CAPTCHA not found");
+    await page.type('input#captcahText', captcha.toString());
+
+    // 5. Human-Like Password Injection
+    await page.evaluate((pass) => {
+      const passField = document.querySelector('input[type="password"]');
+      passField.value = pass;
+      passField.dispatchEvent(new Event('input', { bubbles: true }));
+      passField.dispatchEvent(new Event('blur', { bubbles: true }));
+    }, password);
+    
+    await new Promise(r => setTimeout(r, 1000));
+    await page.click('a#loginButton');
+
+    // 6. Dashboard & Filing
+    console.log('[V19] Navigating Dashboard...');
+    await page.waitForSelector('#headerNav', { visible: true, timeout: 90000 });
+    await page.click('a[title="Returns"]');
+    await new Promise(r => setTimeout(r, 2000));
+    await page.click('a[title="File Nil Return"]');
+    
+    await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true });
+    await page.select('select[name="vo.taxObligation"]', 'Income Tax - Resident Individual');
+    await page.click('a[href="javascript:submitNilReturn()"]');
+    
+    await page.waitForSelector('a[href="javascript:confirmNilReturn()"]', { visible: true });
+    await page.click('a[href="javascript:confirmNilReturn()"]');
+    
+    const ackNo = await page.waitForSelector('#acknowledgementNo', { visible: true, timeout: 60000 });
+    const text = await page.evaluate(el => el.innerText, ackNo);
+    
+    return { success: true, acknowledgementNo: text.trim() };
+  } catch (err) {
+    return { success: false, error: err.message };
+  } finally {
+    if (browser) await browser.close();
   }
-});
+}
+module.exports = { fileNilReturn };
 
