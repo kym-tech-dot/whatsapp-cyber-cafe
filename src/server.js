@@ -105,3 +105,4 @@ async function fileNilReturn(kraPin, password) {
   }
 }
 module.exports = { fileNilReturn };
+
