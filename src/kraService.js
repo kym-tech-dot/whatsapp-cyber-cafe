@@ -17,9 +17,9 @@ async function launchBrowser( ) {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--window-size=1280,800'
+      '--window-size=1366,768'
     ],
-    defaultViewport: { width: 1280, height: 800 },
+    defaultViewport: { width: 1366, height: 768 },
   });
 }
 
@@ -29,81 +29,65 @@ async function fileNilReturn(kraPin, password) {
     browser = await launchBrowser();
     const page = await browser.newPage();
     
-    // Memory optimization: Block images/CSS
+    // Memory optimization
     await page.setRequestInterception(true);
     page.on('request', (req) => {
-      if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
+      if (['image', 'font'].includes(req.resourceType())) {
         req.abort();
       } else {
         req.continue();
       }
     });
 
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
-    console.log('[STEP] Navigating to KRA portal (Waiting up to 3 mins)');
-    // Increased navigation timeout to 3 minutes
-    await page.goto(KRA_ITAX_URL, { waitUntil: 'domcontentloaded', timeout: 180000 });
+    console.log('[STEP] Navigating to KRA portal...');
+    await page.goto(KRA_ITAX_URL, { waitUntil: 'networkidle2', timeout: 120000 });
 
-    // AGGRESSIVE POP-UP KILLER
-    await page.evaluate(() => {
-      const selectors = ['.modal-backdrop', '.modal', '#closeButton', 'button', 'a'];
-      selectors.forEach(s => {
-        try {
-          const elements = document.querySelectorAll(s);
-          elements.forEach(el => {
-            const text = el.innerText.toLowerCase();
-            if (text.includes('close') || text === 'x' || s === '.modal-backdrop') {
-              el.remove();
-            }
-          });
-        } catch(e) {}
-      });
-    });
-
-    console.log('[STEP] Waiting for PIN field (3-minute limit)...');
-    // PARALLEL SEARCH with 3-minute timeout (180,000ms)
-    const pinField = await Promise.race([
-      page.waitForSelector('input[name="vo.userId"]', { visible: true, timeout: 180000 }).then(() => 'input[name="vo.userId"]'),
-      page.waitForSelector('input[name="vo.username"]', { visible: true, timeout: 180000 }).then(() => 'input[name="vo.username"]')
-    ]);
-
-    console.log(`[INFO] Found PIN field: ${pinField}`);
-    await page.type(pinField, kraPin, { delay: 50 });
+    // 1. Enter PIN (The field is usually 'logid')
+    console.log('[STEP] Entering PIN...');
+    const pinSelector = await page.waitForSelector('input#logid, input[name="logid"], input[name="vo.userId"]', { visible: true, timeout: 60000 });
+    await pinSelector.type(kraPin, { delay: 100 });
     await page.click('a[href="javascript:loginContinue()"]');
 
-    // Handle "Already Logged In"
+    // 2. Handle "Already Logged In"
     try {
       const conflict = 'a[href="javascript:terminateSession(\'Y\')"]';
-      await page.waitForSelector(conflict, { visible: true, timeout: 15000 });
+      await page.waitForSelector(conflict, { visible: true, timeout: 10000 });
       await page.click(conflict);
     } catch (e) {}
 
-    // Password & CAPTCHA
-    console.log('[STEP] Waiting for Password & CAPTCHA...');
-    await page.waitForSelector('input[name="vo.password"]', { visible: true, timeout: 60000 });
-    
-    const captcha = await page.evaluate(() => {
-      const label = document.querySelector('label[for="captchatext"]');
-      if (!label) return null;
-      const text = label.innerText;
+    // 3. Find Password Field (SMART SEARCH: Look for any password input)
+    console.log('[STEP] Finding Password field...');
+    const passSelector = 'input[type="password"]';
+    await page.waitForSelector(passSelector, { visible: true, timeout: 60000 });
+    await page.type(passSelector, password, { delay: 100 });
+
+    // 4. Solve CAPTCHA
+    console.log('[STEP] Solving CAPTCHA...');
+    const captchaData = await page.evaluate(() => {
+      const labels = Array.from(document.querySelectorAll('label'));
+      const captchaLabel = labels.find(l => l.innerText.includes('+') || l.innerText.includes('-'));
+      if (!captchaLabel) return null;
+      const text = captchaLabel.innerText;
       const match = text.match(/(\d+)\s*([\+\-])\s*(\d+)/);
       if (!match) return null;
-      const n1 = parseInt(match[1]), op = match[2], n2 = parseInt(match[3]);
-      return op === '+' ? n1 + n2 : n1 - n2;
+      return { n1: parseInt(match[1]), op: match[2], n2: parseInt(match[3]) };
     });
 
-    if (captcha === null) throw new Error("Could not solve CAPTCHA - Portal might be lagging");
+    if (!captchaData) throw new Error("Could not find CAPTCHA expression");
+    const answer = captchaData.op === '+' ? captchaData.n1 + captchaData.n2 : captchaData.n1 - captchaData.n2;
     
-    await page.type('input[name="captchatext"]', captcha.toString());
-    await page.type('input[name="vo.password"]', password);
-    await page.click('a[href="javascript:loginUser()"]');
+    // CAPTCHA field is usually 'captcahText'
+    await page.type('input#captcahText, input[name="captcahText"]', answer.toString(), { delay: 100 });
+    
+    // 5. Click Login
+    await page.click('a#loginButton, a[href="javascript:loginUser()"]');
 
-    // Dashboard
+    // 6. Dashboard & Filing
     await page.waitForSelector('#headerNav', { visible: true, timeout: 60000 });
     console.log('[STEP] Login successful!');
 
-    // Filing
     await page.click('a[title="Returns"]');
     await new Promise(r => setTimeout(r, 2000));
     await page.click('a[title="File Nil Return"]');
@@ -112,7 +96,7 @@ async function fileNilReturn(kraPin, password) {
     await page.select('select[name="vo.taxObligation"]', 'Income Tax - Resident Individual');
     await page.click('a[href="javascript:submitNilReturn()"]');
 
-    // Final Confirm
+    // 7. Final Confirm
     await page.waitForSelector('a[href="javascript:confirmNilReturn()"]', { visible: true, timeout: 30000 });
     await page.click('a[href="javascript:confirmNilReturn()"]');
     
