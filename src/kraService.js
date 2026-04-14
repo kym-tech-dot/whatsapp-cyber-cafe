@@ -17,8 +17,7 @@ async function launchBrowser( ) {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--js-flags="--max-old-space-size=256"' // Memory optimization
+      '--window-size=1280,800'
     ],
     defaultViewport: { width: 1280, height: 800 },
   });
@@ -30,7 +29,7 @@ async function fileNilReturn(kraPin, password) {
     browser = await launchBrowser();
     const page = await browser.newPage();
     
-    // MEMORY SAVER: Block images and CSS to prevent "Socket Hang Up"
+    // Memory optimization: Block images/CSS
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
@@ -45,60 +44,78 @@ async function fileNilReturn(kraPin, password) {
     console.log('[STEP] Navigating to KRA portal');
     await page.goto(KRA_ITAX_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
 
-    // Try both selectors for PIN
-    let pinSelector = 'input[name="vo.userId"]';
-    try {
-      await page.waitForSelector(pinSelector, { visible: true, timeout: 15000 });
-    } catch (e) {
-      pinSelector = 'input[name="vo.username"]';
-      await page.waitForSelector(pinSelector, { visible: true, timeout: 15000 });
-    }
+    // AGGRESSIVE POP-UP KILLER: Run this every 2 seconds to clear the screen
+    const killPopups = async () => {
+      await page.evaluate(() => {
+        const selectors = ['.modal-backdrop', '.modal', '#closeButton', 'button:contains("Close")', 'a:contains("X")'];
+        selectors.forEach(s => {
+          try {
+            const el = document.querySelector(s);
+            if (el) el.remove();
+          } catch(e) {}
+        });
+        // Force display of login form if hidden
+        const form = document.querySelector('#loginForm');
+        if (form) form.style.display = 'block';
+      });
+    };
+    await killPopups();
 
-    await page.type(pinSelector, kraPin, { delay: 50 });
+    console.log('[STEP] Waiting for PIN field...');
+    // PARALLEL SEARCH: Look for both possible PIN field names
+    const pinField = await Promise.race([
+      page.waitForSelector('input[name="vo.userId"]', { visible: true, timeout: 45000 }).then(() => 'input[name="vo.userId"]'),
+      page.waitForSelector('input[name="vo.username"]', { visible: true, timeout: 45000 }).then(() => 'input[name="vo.username"]')
+    ]);
+
+    await page.type(pinField, kraPin, { delay: 50 });
     await page.click('a[href="javascript:loginContinue()"]');
 
-    // Handle session conflict
+    // Handle "Already Logged In"
     try {
       const conflict = 'a[href="javascript:terminateSession(\'Y\')"]';
-      await page.waitForSelector(conflict, { visible: true, timeout: 5000 });
+      await page.waitForSelector(conflict, { visible: true, timeout: 8000 });
       await page.click(conflict);
     } catch (e) {}
 
     // Password & CAPTCHA
+    console.log('[STEP] Waiting for Password & CAPTCHA...');
     await page.waitForSelector('input[name="vo.password"]', { visible: true, timeout: 30000 });
     
     const captcha = await page.evaluate(() => {
       const label = document.querySelector('label[for="captchatext"]');
       if (!label) return null;
-      const match = label.innerText.match(/(\d+)\s*([\+\-])\s*(\d+)/);
+      const text = label.innerText;
+      const match = text.match(/(\d+)\s*([\+\-])\s*(\d+)/);
       if (!match) return null;
       const n1 = parseInt(match[1]), op = match[2], n2 = parseInt(match[3]);
       return op === '+' ? n1 + n2 : n1 - n2;
     });
 
-    if (captcha === null) throw new Error("CAPTCHA failed");
+    if (captcha === null) throw new Error("Could not solve CAPTCHA - Portal might be lagging");
     
     await page.type('input[name="captchatext"]', captcha.toString());
     await page.type('input[name="vo.password"]', password);
     await page.click('a[href="javascript:loginUser()"]');
 
     // Dashboard
-    await page.waitForSelector('#headerNav', { visible: true, timeout: 40000 });
-    
+    await page.waitForSelector('#headerNav', { visible: true, timeout: 45000 });
+    console.log('[STEP] Login successful!');
+
     // Filing
     await page.click('a[title="Returns"]');
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 1500));
     await page.click('a[title="File Nil Return"]');
 
-    await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true });
+    await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true, timeout: 30000 });
     await page.select('select[name="vo.taxObligation"]', 'Income Tax - Resident Individual');
     await page.click('a[href="javascript:submitNilReturn()"]');
 
     // Final Confirm
-    await page.waitForSelector('a[href="javascript:confirmNilReturn()"]', { visible: true });
+    await page.waitForSelector('a[href="javascript:confirmNilReturn()"]', { visible: true, timeout: 20000 });
     await page.click('a[href="javascript:confirmNilReturn()"]');
     
-    await page.waitForSelector('#acknowledgementNo', { visible: true, timeout: 30000 });
+    await page.waitForSelector('#acknowledgementNo', { visible: true, timeout: 40000 });
     const ackNo = await page.evaluate(() => document.querySelector('#acknowledgementNo').innerText.trim());
 
     return { success: true, acknowledgementNo: ackNo };
@@ -112,5 +129,3 @@ async function fileNilReturn(kraPin, password) {
 }
 
 module.exports = { fileNilReturn };
-
-
