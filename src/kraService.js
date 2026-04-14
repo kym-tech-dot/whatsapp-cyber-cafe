@@ -281,7 +281,7 @@ async function login(page, kraPin, password) {
   logger.step('Starting login sequence');
 
   // ── Step 1: Enter KRA PIN ─────────────────────────────────────────────────
-  await typeIntoField(page, 'input[name="vo.username"]', kraPin, 'KRA PIN field');
+  await typeIntoField(page, 'input[name="vo.userId"]', kraPin, 'KRA PIN field');
 
   // ── Step 2: Click "Continue" ──────────────────────────────────────────────
   // KRA uses a JavaScript href button — must use engineeredClick
