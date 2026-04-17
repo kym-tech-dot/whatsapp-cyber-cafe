@@ -4,8 +4,7 @@ const { join } = require('path');
  * @type {import("puppeteer").Configuration}
  */
 module.exports = {
-  // This tells Puppeteer to save Chrome inside your project folder so Render can find it
+  // Changes the cache location for Puppeteer.
   cacheDirectory: join(__dirname, '.cache', 'puppeteer'),
 };
-
 
