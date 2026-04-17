@@ -8,16 +8,9 @@ async function fileNilReturn(kraPin, password) {
   try {
     browser = await puppeteer.launch({
       headless: 'new',
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage', 
-        '--disable-gpu',
-        '--window-size=1366,768'
-      ]
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
     });
     const page = await browser.newPage();
-    // Use a very common User Agent to blend in
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
 
     // 1. Open KRA Portal
@@ -25,42 +18,22 @@ async function fileNilReturn(kraPin, password) {
 
     // 2. AGGRESSIVE POP-UP REMOVAL
     await page.evaluate(() => {
-      const closeElements = [...document.querySelectorAll('button, a, span, img, div')].filter(el => 
-        el.innerText?.toLowerCase().includes('close') || 
-        el.id?.toLowerCase().includes('close') ||
-        el.innerText === 'X'
+      const closeElements = [...document.querySelectorAll('button, a, span, img')].filter(el => 
+        el.innerText?.toLowerCase().includes('close') || el.id?.toLowerCase().includes('close')
       );
       closeElements.forEach(el => el.click());
     });
     await new Promise(r => setTimeout(r, 5000));
 
     // 3. Enter PIN
-    // We look for ANY input field that looks like a PIN field
-    const pinField = await page.waitForSelector('input#logid, input[name="logid"], input[name*="userId"]', { visible: true, timeout: 60000 });
-    await pinField.type(kraPin, { delay: 150 });
-    
-    // 4. UNIVERSAL CONTINUE CLICK (No IDs needed)
-    await page.evaluate(() => {
-      // Find any clickable element that contains the word "Continue"
-      const elements = [...document.querySelectorAll('a, button, input[type="button"], span')];
-      const continueBtn = elements.find(el => el.innerText?.toLowerCase().includes('continue') || el.value?.toLowerCase().includes('continue'));
-      
-      if (continueBtn) {
-        continueBtn.scrollIntoView();
-        continueBtn.click();
-      } else {
-        // Fallback: Try the known javascript link if text search fails
-        const jsLink = document.querySelector('a[href*="loginContinue"]');
-        if (jsLink) jsLink.click();
-        else throw new Error("Could not find any 'Continue' button or link on the page.");
-      }
-    });
+    await page.waitForSelector('input#logid', { visible: true, timeout: 60000 });
+    await page.type('input#logid', kraPin, { delay: 150 });
+    await page.click('a[href*="loginContinue"], #continueBtn');
 
-    // 5. Wait for Password & CAPTCHA
+    // 4. Wait for Password & CAPTCHA
     await page.waitForSelector('input[type="password"]', { visible: true, timeout: 60000 });
-    await new Promise(r => setTimeout(r, 3000));
-
-    // 6. Solve the Math CAPTCHA
+    
+    // 5. Solve the Math CAPTCHA
     const captchaResult = await page.evaluate(() => {
       const labels = Array.from(document.querySelectorAll('label, span, div, td'));
       const mathLabel = labels.find(l => l.innerText.includes('+') || l.innerText.includes('-'));
@@ -72,16 +45,25 @@ async function fileNilReturn(kraPin, password) {
     if (captchaResult === null) throw new Error("KRA Portal slow - CAPTCHA math not found");
     await page.type('input#captcahText', captchaResult.toString(), { delay: 100 });
 
-    // 7. Enter Password (Human-Like Injection)
+    // 6. HUMAN-LIKE PASSWORD INJECTION (Bypasses Virtual Keyboard)
     await page.evaluate((pass) => {
       const passField = document.querySelector('input[type="password"]');
       passField.value = pass;
+      // Trigger KRA's internal validation so the Login button works
       passField.dispatchEvent(new Event('input', { bubbles: true }));
       passField.dispatchEvent(new Event('change', { bubbles: true }));
+      passField.dispatchEvent(new Event('blur', { bubbles: true }));
     }, password);
     
     await new Promise(r => setTimeout(r, 2000));
     await page.click('a#loginButton');
+
+    // 7. Check for Login Errors (Invalid PIN/Password)
+    const loginError = await page.evaluate(() => {
+      const errorBox = document.querySelector('.error, .errorMessage, #errors');
+      return errorBox ? errorBox.innerText.trim() : null;
+    });
+    if (loginError) throw new Error(`KRA Login Error: ${loginError}`);
 
     // 8. Dashboard & Filing (Wait up to 3 mins)
     await page.waitForSelector('#headerNav', { visible: true, timeout: 180000 });
