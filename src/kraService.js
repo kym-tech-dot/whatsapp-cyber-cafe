@@ -78,7 +78,7 @@ async function fileNilReturn(kraPin, password) {
     await page.click('a[title="Returns"]');
     await new Promise(r => setTimeout(r, 2000));
     await page.click('a[title="File Nil Return"]');
-    
+    await page.waitForSelector('#headerNav', { visible: true, timeout: 180000 });
     await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true });
     await page.select('select[name="vo.taxObligation"]', 'Income Tax - Resident Individual');
     await page.click('a[href*="submitNilReturn"]');
