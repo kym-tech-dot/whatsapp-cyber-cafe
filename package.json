@@ -1,10 +1,10 @@
 {
   "name": "e-cyber-assistant",
   "version": "1.0.0",
-  "description": "Telegram Bot for KRA NIL Returns and other services",
-  "main": "server.js",
+  "description": "Production-grade KRA iTax Automation Bot",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node src/server.js",
     "postinstall": "PUPPETEER_CACHE_DIR=.cache/puppeteer npx puppeteer install"
   },
   "dependencies": {
@@ -12,6 +12,7 @@
     "puppeteer": "24.40.0",
     "puppeteer-extra": "3.3.6",
     "puppeteer-extra-plugin-stealth": "2.11.0",
+    "express": "^4.19.2",
     "glob": "^10.0.0",
     "dotenv": "^16.4.5"
   },
