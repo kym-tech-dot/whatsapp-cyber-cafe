@@ -13,9 +13,13 @@ server.listen(PORT, () => console.log(`Server on port ${PORT}`));
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
-const userState = {};
 
-console.log('--- E-Cyber Assistant V28 (Final Polish) is Starting ---');
+// FORCE KILL OTHER INSTANCES
+bot.deleteWebHook().then(() => {
+  console.log('--- E-Cyber Assistant V30 (Conflict Killer) is Starting ---');
+});
+
+const userState = {};
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
@@ -24,7 +28,7 @@ bot.on('message', async (msg) => {
 
   if (text === '/start') {
     delete userState[chatId];
-    return bot.sendMessage(chatId, "Welcome! 🚀 (V28 ACTIVE)\n\nUse /nilreturn to start.");
+    return bot.sendMessage(chatId, "Welcome! 🚀 (V30 ACTIVE)\n\nUse /nilreturn to start.");
   }
   if (text === '/nilreturn') {
     userState[chatId] = { step: 'awaiting_pin' };
@@ -42,7 +46,7 @@ bot.on('message', async (msg) => {
   if (state.step === 'awaiting_password') {
     state.password = text.trim();
     state.step = 'processing';
-    bot.sendMessage(chatId, "🚀 V28: Starting KRA NIL return... (Wait up to 5 mins due to KRA slowness)");
+    bot.sendMessage(chatId, "🚀 V30: Starting KRA NIL return... (Wait up to 5 mins)");
     const result = await kraService.fileNilReturn(state.pin, state.password);
     if (result.success) {
       bot.sendMessage(chatId, `✅ SUCCESS! Ack No: ${result.acknowledgementNo}`);
@@ -50,6 +54,13 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, `❌ FAILED: ${result.error}`);
     }
     delete userState[chatId];
+  }
+});
+
+bot.on('polling_error', (err) => {
+  if (err.message.includes('409 Conflict')) {
+    console.log('--- CONFLICT DETECTED: RESTARTING BOT ---');
+    process.exit(1); // Force Render to restart the container
   }
 });
 
