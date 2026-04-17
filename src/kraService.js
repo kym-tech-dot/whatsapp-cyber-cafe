@@ -16,37 +16,27 @@ async function fileNilReturn(kraPin, password) {
     // 1. Open KRA Portal
     await page.goto('https://itax.kra.go.ke/KRA-Portal/', { waitUntil: 'networkidle2', timeout: 180000 } );
 
-    // 2. AGGRESSIVE POP-UP REMOVAL (Matches the "Notice" in your video)
+    // 2. AGGRESSIVE POP-UP REMOVAL
     await page.evaluate(() => {
       const closeElements = [...document.querySelectorAll('button, a, span, img')].filter(el => 
-        el.innerText?.toLowerCase().includes('close') || 
-        el.id?.toLowerCase().includes('close') || 
-        el.className?.toLowerCase().includes('close') ||
-        el.alt?.toLowerCase().includes('close')
+        el.innerText?.toLowerCase().includes('close') || el.id?.toLowerCase().includes('close')
       );
       closeElements.forEach(el => el.click());
     });
-    await new Promise(r => setTimeout(r, 3000)); // Wait for overlays to clear
+    await new Promise(r => setTimeout(r, 3000));
 
     // 3. Enter PIN
     await page.waitForSelector('input#logid', { visible: true, timeout: 60000 });
     await page.type('input#logid', kraPin, { delay: 150 });
     
-    // 4. CLICK CONTINUE (Using the exact logic from your video)
-    // We use a "Force Click" because KRA buttons are often blocked by invisible layers
+    // 4. CLICK CONTINUE
     await page.evaluate(() => {
-      const btn = document.querySelector('a[href*="loginContinue"]') || 
-                  document.querySelector('#continueBtn') || 
-                  Array.from(document.querySelectorAll('a')).find(el => el.innerText.toLowerCase().includes('continue'));
-      if (btn) {
-        btn.scrollIntoView();
-        btn.click();
-      } else {
-        throw new Error("Continue button not found");
-      }
+      const btn = document.querySelector('a[href*="loginContinue"]') || document.querySelector('#continueBtn');
+      if (btn) btn.click();
+      else throw new Error("Continue button not found");
     });
 
-    // 5. Wait for Password & CAPTCHA (Wait longer for the slow script)
+    // 5. Wait for Password & CAPTCHA
     await page.waitForSelector('input[type="password"]', { visible: true, timeout: 60000 });
     await new Promise(r => setTimeout(r, 2000));
 
@@ -73,17 +63,19 @@ async function fileNilReturn(kraPin, password) {
     await new Promise(r => setTimeout(r, 1500));
     await page.click('a#loginButton');
 
-    // 8. Dashboard & Filing (Matches your video path)
-    await page.waitForSelector('#headerNav', { visible: true, timeout: 90000 });
+    // 8. Dashboard & Filing (INCREASED TIMEOUT TO 3 MINUTES)
+    console.log('[V29] Waiting for Dashboard (up to 3 mins)...');
+    await page.waitForSelector('#headerNav', { visible: true, timeout: 180000 });
+    
     await page.click('a[title="Returns"]');
     await new Promise(r => setTimeout(r, 2000));
     await page.click('a[title="File Nil Return"]');
-    await page.waitForSelector('#headerNav', { visible: true, timeout: 180000 });
-    await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true });
+    
+    await page.waitForSelector('select[name="vo.taxObligation"]', { visible: true, timeout: 60000 });
     await page.select('select[name="vo.taxObligation"]', 'Income Tax - Resident Individual');
     await page.click('a[href*="submitNilReturn"]');
     
-    await page.waitForSelector('a[href*="confirmNilReturn"]', { visible: true });
+    await page.waitForSelector('a[href*="confirmNilReturn"]', { visible: true, timeout: 60000 });
     await page.click('a[href*="confirmNilReturn"]');
     
     const ackNo = await page.waitForSelector('#acknowledgementNo', { visible: true, timeout: 60000 });
@@ -97,3 +89,4 @@ async function fileNilReturn(kraPin, password) {
   }
 }
 module.exports = { fileNilReturn };
+
