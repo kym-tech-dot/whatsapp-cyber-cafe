@@ -1,10 +1,7 @@
 import puppeteer from "puppeteer";
 import readline from "readline";
 
-// 🔐 CAPTCHA HANDLER (IMEONGEZWA JUU)
 async function handleCaptcha(page) {
-  console.log("[KRA-LOG]: Checking CAPTCHA...");
-
   const captchaSelectors = [
     'img[src*="captcha"]',
     '#captchaImg',
@@ -15,23 +12,14 @@ async function handleCaptcha(page) {
 
   for (const sel of captchaSelectors) {
     try {
-      await page.waitForSelector(sel, { timeout: 5000 });
       captchaElement = await page.$(sel);
       if (captchaElement) break;
     } catch {}
   }
 
-  if (!captchaElement) {
-    console.log("[CAPTCHA]: Hakuna captcha imeonekana");
-    return;
-  }
+  if (!captchaElement) return;
 
-  console.log("[CAPTCHA]: Imeonekana!");
-
-  const path = "captcha.png";
-  await captchaElement.screenshot({ path });
-
-  console.log("👉 Fungua captcha.png uandike code:");
+  await captchaElement.screenshot({ path: "captcha.png" });
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -45,26 +33,21 @@ async function handleCaptcha(page) {
     })
   );
 
-  // Ingiza captcha
-  const inputSelectors = [
+  const inputs = [
     'input[name="captcha"]',
     '#captcha',
     'input[type="text"]'
   ];
 
-  for (const sel of inputSelectors) {
-    const input = await page.$(sel);
-    if (input) {
+  for (const sel of inputs) {
+    const el = await page.$(sel);
+    if (el) {
       await page.type(sel, answer, { delay: 50 });
-      console.log("[CAPTCHA]: Imewekwa");
       return;
     }
   }
-
-  console.log("[CAPTCHA]: Field haijaonekana!");
 }
 
-// 🚀 MAIN FUNCTION
 async function runKRA(pin, password) {
   const browser = await puppeteer.launch({
     headless: false,
@@ -74,17 +57,8 @@ async function runKRA(pin, password) {
   const page = await browser.newPage();
 
   try {
-    console.log("[KRA-LOG]: Inafungua KRA iTax...");
     await page.goto("https://itax.kra.go.ke", {
       waitUntil: "networkidle2",
-      timeout: 60000
-    });
-
-    await page.screenshot({ path: "step1_open.png" });
-
-    console.log("[KRA-LOG]: Inaingiza PIN...");
-
-    await page.waitForSelector('input[name="pin"], #pin, input[type="text"]', {
       timeout: 60000
     });
 
@@ -92,64 +66,50 @@ async function runKRA(pin, password) {
       delay: 50
     });
 
-    // 🔥 CAPTCHA BEFORE CONTINUE
     await handleCaptcha(page);
-
-    console.log("[KRA-LOG]: Inabofya Continue...");
 
     await Promise.all([
       page.click('input[type="submit"], button[type="submit"], #btnLogin'),
       page.waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 })
     ]);
 
-    console.log("[KRA-LOG]: Inasubiri Password...");
+    // WAIT UNTIL PASSWORD APPEARS (FIXED CRASH)
+    await page.waitForFunction(() => {
+      return (
+        document.querySelector('input[type="password"]') ||
+        document.querySelector('#password') ||
+        document.querySelector('input[name="password"]')
+      );
+    }, { timeout: 60000 });
 
-    let passwordSelector = null;
-
-    const selectors = [
-      'input[type="password"]',
-      '#password',
-      'input[name="password"]'
-    ];
-
-    for (const sel of selectors) {
-      try {
-        await page.waitForSelector(sel, { timeout: 15000 });
-        passwordSelector = sel;
-        break;
-      } catch (err) {
-        console.log(`[DEBUG]: Selector failed -> ${sel}`);
-      }
-    }
+    let passwordSelector =
+      (await page.$('input[type="password"]')) ||
+      (await page.$('#password')) ||
+      (await page.$('input[name="password"]'));
 
     if (!passwordSelector) {
-      await page.screenshot({ path: "error_no_password.png" });
-      const html = await page.content();
-      console.log("[DEBUG HTML]:", html.substring(0, 2000));
-      throw new Error("Password field not found");
+      await page.screenshot({ path: "error_password.png" });
+      throw new Error("Password field haijapatikana");
     }
 
-    console.log("[KRA-LOG]: Inaingiza Password...");
-    await page.type(passwordSelector, password, { delay: 50 });
+    await page.type(
+      'input[type="password"], #password, input[name="password"]',
+      password,
+      { delay: 50 }
+    );
 
-    // 🔥 CAPTCHA AGAIN (IMPORTANT)
     await handleCaptcha(page);
-
-    console.log("[KRA-LOG]: Inalogin...");
 
     await Promise.all([
       page.click('input[type="submit"], button[type="submit"]'),
       page.waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 })
     ]);
 
-    console.log("[KRA-LOG]: Login successful!");
     await page.screenshot({ path: "success.png" });
 
-  } catch (error) {
-    console.error("❌ IMEFELI:", error.message);
-    await page.screenshot({ path: "final_error.png" });
+  } catch (err) {
+    await page.screenshot({ path: "error.png" });
+    console.error("❌ IMEFELI:", err.message);
   }
 }
 
-// 🧪 TEST
-runKRA("A123456789X", "your_password_here");
