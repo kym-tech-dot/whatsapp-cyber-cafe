@@ -1,0 +1,22 @@
+{
+  "name": "whatsapp-cyber-cafe-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp bot for cyber cafe automation",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": ["whatsapp", "bot", "cyber-cafe", "automation"],
+  "author": "kym-tech",
+  "license": "MIT",
+  "dependencies": {
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode-terminal": "^0.12.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  }
+}
