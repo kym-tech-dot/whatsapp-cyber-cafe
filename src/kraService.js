@@ -1,66 +1,73 @@
-// Improved version of kraService.js
+// Improved version of kraService.js to handle password field timeout issues.
 
-const { expect } = require('chai');
-const { Builder, By, until } = require('selenium-webdriver');
+const puppeteer = require('puppeteer');
 
-class KraService {
-    constructor() {
-        this.driver = new Builder().forBrowser('chrome').build();
-    }
-
-    async navigateToPage(url) {
-        try {
-            await this.driver.get(url);
-            console.log(`Navigated to ${url}`);
-        } catch (error) {
-            console.error(`Error navigating to page: ${error.message}`);
-            await this.takeScreenshot();
-        }
-    }
-
-    async waitForElement(selector, timeout = 90000) {
-        try {
-            const element = await this.driver.wait(until.elementLocated(By.css(selector)), timeout);
-            await this.driver.wait(until.elementIsVisible(element), timeout);
-            return element;
-        } catch (error) {
-            console.error(`Element not found: ${selector}. Error: ${error.message}`);
-            await this.takeScreenshot();
-            await this.reloadPageIfNeeded();
-        }
-    }
-
-    async enterPassword(password) {
-        const passwordFieldSelector = 'input[type="password"]';
-        const passwordField = await this.waitForElement(passwordFieldSelector);
-        if (passwordField) {
-            await passwordField.sendKeys(password);
-            console.log('Password entered successfully.');
-        } else {
-            console.error('Password field not found!');
-        }
-    }
-
-    async takeScreenshot() {
-        const filePath = `screenshots/error_${Date.now()}.png`;
-        await this.driver.takeScreenshot().then((image) => {
-            require('fs').writeFileSync(filePath, image, 'base64');
-            console.log(`Screenshot saved to ${filePath}`);
-        });
-    }
-
-    async reloadPageIfNeeded() {
-        const passwordFieldSelector = 'input[type="password"]';
-        const element = await this.driver.findElements(By.css(passwordFieldSelector));
-        if (element.length === 0) {
-            console.log('Reloading page due to password field not found.');
-            await this.driver.navigate().refresh();
-        }
-    }
-
-    async close() {
-        await this.driver.quit();
-    }
+async function launchBrowser() {
+    const browser = await puppeteer.launch({
+        headless: false,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    return browser;
 }
 
-module.exports = KraService;
+async function waitForElementVisible(page, selector, timeout = 90000) {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+        const element = await page.$(selector);
+        if (element) {
+            const isVisible = await element.isIntersectingViewport();
+            if (isVisible) {
+                return element;
+            }
+        }
+        await page.waitForTimeout(1000);
+    }
+    throw new Error(`Element ${selector} not visible after ${timeout} ms`);
+}
+
+async function handleCaptcha(page) {
+    // Enhanced CAPTCHA handling logic here
+    // ...
+}
+
+async function fillPinField(page, pin) {
+    const pinField = await waitForElementVisible(page, 'input[name="pin"]', 90000);
+    await pinField.click();
+    await page.evaluate((field) => field.value = '', pinField);
+    await pinField.type(pin);
+}
+
+async function fillPasswordField(page, password) {
+    const passwordField = await waitForElementVisible(page, 'input[name="password"]', 90000);
+    await passwordField.click();
+    await page.evaluate((field) => field.value = '', passwordField);
+    await passwordField.type(password);
+}
+
+async function takeScreenshot(page, filename) {
+    await page.screenshot({ path: filename });
+}
+
+(async () => {
+    const browser = await launchBrowser();
+    const page = await browser.newPage();
+
+    try {
+        // Navigate to the login page
+        await page.goto('https://example.com/login');
+
+        // Handle CAPTCHA if it appears
+        await handleCaptcha(page);
+
+        // Fill in the PIN and password
+        await fillPinField(page, '1234');
+        await fillPasswordField(page, 'your-password');
+
+        // Take debug screenshot
+        await takeScreenshot(page, 'debug_screenshot.png');
+    } catch (error) {
+        console.error('An error occurred:', error);
+    } finally {
+        await browser.close();
+    }
+})();
