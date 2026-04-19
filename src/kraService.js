@@ -1,115 +1,66 @@
-import puppeteer from "puppeteer";
-import readline from "readline";
+// Improved version of kraService.js
 
-async function handleCaptcha(page) {
-  const captchaSelectors = [
-    'img[src*="captcha"]',
-    '#captchaImg',
-    'img[alt*="captcha"]'
-  ];
+const { expect } = require('chai');
+const { Builder, By, until } = require('selenium-webdriver');
 
-  let captchaElement = null;
-
-  for (const sel of captchaSelectors) {
-    try {
-      captchaElement = await page.$(sel);
-      if (captchaElement) break;
-    } catch {}
-  }
-
-  if (!captchaElement) return;
-
-  await captchaElement.screenshot({ path: "captcha.png" });
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-
-  const answer = await new Promise(resolve =>
-    rl.question("CAPTCHA: ", ans => {
-      rl.close();
-      resolve(ans);
-    })
-  );
-
-  const inputs = [
-    'input[name="captcha"]',
-    '#captcha',
-    'input[type="text"]'
-  ];
-
-  for (const sel of inputs) {
-    const el = await page.$(sel);
-    if (el) {
-      await page.type(sel, answer, { delay: 50 });
-      return;
-    }
-  }
-}
-
-async function runKRA(pin, password) {
-  const browser = await puppeteer.launch({
-    headless: false,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  });
-
-  const page = await browser.newPage();
-
-  try {
-    await page.goto("https://itax.kra.go.ke", {
-      waitUntil: "networkidle2",
-      timeout: 60000
-    });
-
-    await page.type('input[name="pin"], #pin, input[type="text"]', pin, {
-      delay: 50
-    });
-
-    await handleCaptcha(page);
-
-    await Promise.all([
-      page.click('input[type="submit"], button[type="submit"], #btnLogin'),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 })
-    ]);
-
-    // WAIT UNTIL PASSWORD APPEARS (FIXED CRASH)
-    await page.waitForFunction(() => {
-      return (
-        document.querySelector('input[type="password"]') ||
-        document.querySelector('#password') ||
-        document.querySelector('input[name="password"]')
-      );
-    }, { timeout: 60000 });
-
-    let passwordSelector =
-      (await page.$('input[type="password"]')) ||
-      (await page.$('#password')) ||
-      (await page.$('input[name="password"]'));
-
-    if (!passwordSelector) {
-      await page.screenshot({ path: "error_password.png" });
-      throw new Error("Password field haijapatikana");
+class KraService {
+    constructor() {
+        this.driver = new Builder().forBrowser('chrome').build();
     }
 
-    await page.type(
-      'input[type="password"], #password, input[name="password"]',
-      password,
-      { delay: 50 }
-    );
+    async navigateToPage(url) {
+        try {
+            await this.driver.get(url);
+            console.log(`Navigated to ${url}`);
+        } catch (error) {
+            console.error(`Error navigating to page: ${error.message}`);
+            await this.takeScreenshot();
+        }
+    }
 
-    await handleCaptcha(page);
+    async waitForElement(selector, timeout = 90000) {
+        try {
+            const element = await this.driver.wait(until.elementLocated(By.css(selector)), timeout);
+            await this.driver.wait(until.elementIsVisible(element), timeout);
+            return element;
+        } catch (error) {
+            console.error(`Element not found: ${selector}. Error: ${error.message}`);
+            await this.takeScreenshot();
+            await this.reloadPageIfNeeded();
+        }
+    }
 
-    await Promise.all([
-      page.click('input[type="submit"], button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 })
-    ]);
+    async enterPassword(password) {
+        const passwordFieldSelector = 'input[type="password"]';
+        const passwordField = await this.waitForElement(passwordFieldSelector);
+        if (passwordField) {
+            await passwordField.sendKeys(password);
+            console.log('Password entered successfully.');
+        } else {
+            console.error('Password field not found!');
+        }
+    }
 
-    await page.screenshot({ path: "success.png" });
+    async takeScreenshot() {
+        const filePath = `screenshots/error_${Date.now()}.png`;
+        await this.driver.takeScreenshot().then((image) => {
+            require('fs').writeFileSync(filePath, image, 'base64');
+            console.log(`Screenshot saved to ${filePath}`);
+        });
+    }
 
-  } catch (err) {
-    await page.screenshot({ path: "error.png" });
-    console.error("❌ IMEFELI:", err.message);
-  }
+    async reloadPageIfNeeded() {
+        const passwordFieldSelector = 'input[type="password"]';
+        const element = await this.driver.findElements(By.css(passwordFieldSelector));
+        if (element.length === 0) {
+            console.log('Reloading page due to password field not found.');
+            await this.driver.navigate().refresh();
+        }
+    }
+
+    async close() {
+        await this.driver.quit();
+    }
 }
 
+module.exports = KraService;
